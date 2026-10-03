@@ -8,6 +8,8 @@ Tres pasos:
   3. trends     -> (opcional) ranking de popularidad entre juegos con Google Trends.
 
 Uso (en tu PC, con Python 3.9+):
+  Doble clic en el archivo -> aparece un menú para elegir el paso.
+  O desde la terminal:
   python investigar_guias.py descubrir
   python investigar_guias.py juegos
   python investigar_guias.py trends      (antes: pip install pytrends)
@@ -244,12 +246,32 @@ def paso_trends():
     print(f"   100 = igual de buscado que '{ancla}'; 300 = el triple.")
 
 
+def menu():
+    print(__doc__.split("Uso")[0].strip())
+    print()
+    print("  1 = descubrir    2 = juegos    3 = trends    4 = todo")
+    r = input("¿Qué paso quieres correr? (1-4): ").strip().lower()
+    return {"1": "descubrir", "2": "juegos", "3": "trends", "4": "todo"}.get(r, r)
+
+
 if __name__ == "__main__":
     pasos = {"descubrir": [paso_descubrir], "juegos": [paso_juegos], "trends": [paso_trends],
              "todo": [paso_descubrir, paso_juegos, paso_trends]}
-    eleccion = sys.argv[1] if len(sys.argv) > 1 else "descubrir"
-    if eleccion not in pasos:
-        print(__doc__)
-        sys.exit(1)
-    for paso in pasos[eleccion]:
-        paso()
+    # Con doble clic no hay argumentos: se muestra un menú y la ventana no se cierra sola
+    doble_clic = len(sys.argv) < 2
+    try:
+        eleccion = sys.argv[1] if not doble_clic else menu()
+        if eleccion not in pasos:
+            print(f"No conozco el paso {eleccion!r}. Opciones: {', '.join(pasos)}")
+        else:
+            for paso in pasos[eleccion]:
+                paso()
+            print("\nListo. Los resultados están en:", CARPETA)
+    except KeyboardInterrupt:
+        print("\nCancelado.")
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        print("\nAlgo falló. Copia el texto de arriba y pásaselo a Claude.")
+    if doble_clic:
+        input("\nPresiona Enter para cerrar...")
