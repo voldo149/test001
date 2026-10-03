@@ -50,11 +50,11 @@ SEMILLAS_DESCUBRIR = {
 }
 
 # Paso 2: juegos a investigar a fondo. Agrega o quita los que quieras.
+# (Candidatos elegidos con el resultado del paso 1: juegos nuevos o actualizados
+#  con muchas búsquedas, más Dragonwilds como base)
 JUEGOS = [
-    "osrs", "runescape", "dragonwilds",
-    "zelda tears of the kingdom", "zelda breath of the wild", "zelda echoes of wisdom",
-    "metroid prime", "metroid dread",
-    "pokemon", "elden ring", "minecraft", "hollow knight silksong",
+    "palworld", "resident evil requiem", "007 first light", "expedition 33",
+    "silksong", "battlefield 6", "pokemon za", "deltarune", "dragonwilds",
 ]
 
 # Palabras que se añaden después del juego (además de a-z) en el paso 2
@@ -63,6 +63,18 @@ MODIFICADORES = {
     "en": ["guide", "how to", "where", "best", "all", "map", "quest"],
 }
 
+# Filtro de ruido: sugerencias con estas palabras no son de juegos ("pasar fotos de un
+# celular a otro", "guía de primaria"...). No se borran: van a *_descartadas.csv por si
+# quieres revisarlas. Si una palabra te quita algo bueno, sácala de aquí.
+RUIDO = """
+celular celulares iphone android whatsapp fotos contactos esim wifi bateria pila cable cables usb
+computadora instagram tiktok facebook seguidores youtube google gmail excel word pdf
+primaria secundaria preparatoria grado matematicas fraccion decimal santillana uacj escuela
+pesos dolares dollars quiniela progol 401k trabajo jobs credito
+dhl fedex estafeta rastreo paquete vuelos tallas talla metros km
+hipertension clinica protein grams calorias receta
+crossword lyrics near_me
+"""
 PAUSA = (0.4, 0.9)          # segundos entre peticiones (al azar en ese rango)
 LETRAS = "abcdefghijklmnopqrstuvwxyz0123456789"
 CARPETA = Path(__file__).with_name("resultados")
@@ -73,6 +85,7 @@ de del la las el los un una y o a en para por con que como donde mejor guia guí
 the of to for a an and in on how where best guide walkthrough get beat all
 pasar conseguir encontrar derrotar build trucos todos coleccionables tier list find
 collectibles 100
+out your you with from into new one game games time day sin otro otra todo hacer
 """.split())
 
 # ==========================================================
@@ -96,6 +109,15 @@ def sugerencias(consulta, idioma):
     return []
 
 
+_PALABRAS_RUIDO = [w.replace("_", " ") for w in RUIDO.split()]
+_RE_RUIDO = re.compile(r"\b(" + "|".join(re.escape(w) for w in _PALABRAS_RUIDO) + r")\b")
+descartadas = []   # todo lo que el filtro quitó, para revisarlo
+
+
+def es_ruido(texto):
+    return _RE_RUIDO.search(texto) is not None
+
+
 def recolectar(semillas, idioma, etiqueta):
     """semillas: lista de textos base. Para cada uno prueba base + a..z/0..9."""
     filas = []
@@ -104,8 +126,9 @@ def recolectar(semillas, idioma, etiqueta):
         if i % 25 == 0:
             print(f"   [{etiqueta} {idioma}] {i}/{len(consultas)}")
         for pos, s in enumerate(sugerencias(q, idioma), 1):
-            filas.append({"idioma": idioma, "consulta": q, "posicion": pos,
-                          "puntos": 11 - min(pos, 10), "sugerencia": s.lower()})
+            fila = {"idioma": idioma, "consulta": q, "posicion": pos,
+                    "puntos": 11 - min(pos, 10), "sugerencia": s.lower()}
+            (descartadas if es_ruido(fila["sugerencia"]) else filas).append(fila)
     return filas
 
 
@@ -153,7 +176,10 @@ def paso_descubrir():
     filas = []
     for idioma, semillas in SEMILLAS_DESCUBRIR.items():
         filas += recolectar(semillas, idioma, "descubrir")
-    guardar("1_descubrir_sugerencias.csv", filas, ["idioma", "consulta", "posicion", "puntos", "sugerencia"])
+    campos = ["idioma", "consulta", "posicion", "puntos", "sugerencia"]
+    guardar("1_descubrir_sugerencias.csv", filas, campos)
+    guardar("1_descubrir_descartadas.csv", descartadas, campos)
+    descartadas.clear()
     guardar("1_descubrir_ranking_temas.csv", ranking_temas(filas)[:500],
             ["tema", "puntos", "veces", "es", "en"])
     print("   Abre el ranking de temas: arriba deberían salir los juegos más buscados.")
@@ -169,6 +195,7 @@ def paso_juegos():
             for f in recolectar(semillas, idioma, juego):
                 f["juego"] = juego
                 filas.append(f)
+    descartadas.clear()   # aquí casi no hay ruido (todas llevan el nombre del juego)
     # Una idea por fila (sin repetir), con sus puntos sumados
     ideas = defaultdict(lambda: {"puntos": 0, "veces": 0})
     for f in filas:
