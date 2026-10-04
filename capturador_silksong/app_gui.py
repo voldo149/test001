@@ -44,10 +44,11 @@ TARJETA_HOVER = "#16223a"
 BORDE = "#1e2a3e"
 TEXTO = "#e8eef7"
 TENUE = "#8391a7"
-VERDE = "#2fe0a0"
-VERDE_FONDO = "#0f3d30"
-VERDE_HOVER = "#145040"
-VERDE_BORDE = "#1d6b52"
+VERDE = "#29ce8e"  # verde oficial de la página
+VERDE_FONDO = "#113a36"
+VERDE_HOVER = "#13493f"
+VERDE_BORDE = "#196b53"
+VERDE_CLARO = "#caf3e3"
 AZUL_FONDO = "#172a4d"
 AZUL_HOVER = "#1f3763"
 SELECCION = "#13223d"
@@ -123,7 +124,7 @@ def poner_icono(ventana):
 
 def boton(padre, texto, comando, estilo="normal", **kw):
     estilos = {
-        "verde": dict(fg_color=VERDE_FONDO, hover_color=VERDE_HOVER, text_color="#d6fbec",
+        "verde": dict(fg_color=VERDE_FONDO, hover_color=VERDE_HOVER, text_color=VERDE_CLARO,
                       border_color=VERDE_BORDE, border_width=1),
         "azul": dict(fg_color=AZUL_FONDO, hover_color=AZUL_HOVER, text_color=TEXTO,
                      border_color="#29406b", border_width=1),
@@ -287,7 +288,7 @@ class TarjetaTimer(ctk.CTkFrame):
                         text_color=ROJO, border_color="#5c2433")
         else:
             self._poner("btn", self.btn, text="▶  Iniciar", fg_color=VERDE_FONDO, hover_color=VERDE_HOVER,
-                        text_color="#d6fbec", border_color=VERDE_BORDE)
+                        text_color=VERDE_CLARO, border_color=VERDE_BORDE)
         for clave, valor in (("hoy", hoy), ("semana", semana), ("total", total)):
             self._poner(clave, self.totales[clave], text=valor)
 
