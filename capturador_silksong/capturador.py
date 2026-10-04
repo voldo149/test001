@@ -212,7 +212,11 @@ class Capturador:
         if motor in ("auto", "dxcam"):
             try:
                 import dxcam
-                self._dxcam = dxcam.create(output_idx=max(monitor - 1, 0), output_color="RGB")
+                self._dxcam = dxcam.create(
+                    output_idx=max(monitor - 1, 0),
+                    # BGRA es el formato nativo: así dxcam no necesita OpenCV (cv2).
+                    output_color="BGRA",
+                )
                 if self._dxcam is None:
                     raise RuntimeError("dxcam no pudo abrir el monitor")
                 self.nombre_motor = "dxcam (DXGI)"
@@ -230,13 +234,18 @@ class Capturador:
     def tomar(self):
         """Devuelve un objeto ligero; la conversión pesada se hace en otro hilo."""
         if self._dxcam is not None:
-            # grab() devuelve None si no hubo fotograma nuevo; reintenta un poco.
-            for _ in range(10):
-                frame = self._dxcam.grab()
-                if frame is not None:
-                    return ("array", frame)
-                time.sleep(0.005)
-            # Pantalla estática: caemos a mss por esta vez.
+            try:
+                # grab() devuelve None si no hubo fotograma nuevo; reintenta un poco.
+                for _ in range(10):
+                    frame = self._dxcam.grab()
+                    if frame is not None:
+                        return ("bgra", frame)
+                    time.sleep(0.005)
+            except Exception as e:
+                print(f"  dxcam falló ({e}); se usará mss desde ahora.")
+                self._dxcam = None
+                self.nombre_motor = "mss (GDI)"
+            # Pantalla estática o dxcam falló: usamos mss.
             if self._mss is None:
                 import mss
                 self._mss = mss.mss()
@@ -247,8 +256,9 @@ class Capturador:
     def a_imagen(datos):
         from PIL import Image
         tipo, obj = datos
-        if tipo == "array":
-            return Image.fromarray(obj)
+        if tipo == "bgra":
+            alto, ancho = obj.shape[:2]
+            return Image.frombytes("RGB", (ancho, alto), obj.tobytes(), "raw", "BGRX")
         return Image.frombytes("RGB", obj.size, obj.bgra, "raw", "BGRX")
 
 
@@ -270,11 +280,11 @@ class Guardador(threading.Thread):
             nombre_atajo, momento, datos = item
             try:
                 ruta = self._guardar(nombre_atajo, momento, datos)
-                print(f"  📸 [{nombre_atajo}] {ruta.name}")
+                print(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.config["sonido"]:
                     sonar()
             except Exception as e:
-                print(f"  ⚠ Error al guardar: {e}")
+                print(f"  [!] Error al guardar: {e}")
             finally:
                 self.cola.task_done()
 
@@ -372,7 +382,7 @@ def cmd_agregar(config):
         return
     config["atajos"].append({"nombre": nombre, "botones": nombres})
     guardar_config(config)
-    print(f"  ✔ Atajo '{nombre}' = {texto_combo(nombres)}")
+    print(f"  [ok] Atajo '{nombre}' = {texto_combo(nombres)}")
 
 
 def cmd_listar(config):
@@ -391,7 +401,7 @@ def cmd_borrar(config, nombre):
         print(f"No existe el atajo '{nombre}'.")
         return
     guardar_config(config)
-    print(f"✔ Atajo '{nombre}' borrado.")
+    print(f"[ok] Atajo '{nombre}' borrado.")
 
 
 def cmd_probar():
@@ -433,8 +443,11 @@ def cmd_iniciar(config):
             nombre = detector.actualizar(xi.leer(ahora), ahora)
             if nombre:
                 momento = datetime.now()
-                datos = capturador.tomar()  # solo copia el fotograma (rápido)
-                guardador.cola.put((nombre, momento, datos))
+                try:
+                    datos = capturador.tomar()  # solo copia el fotograma (rápido)
+                    guardador.cola.put((nombre, momento, datos))
+                except Exception as e:
+                    print(f"  [!] No se pudo tomar la foto: {e}")
             time.sleep(INTERVALO_LECTURA)
     except KeyboardInterrupt:
         print("\nTerminando, guardando fotos pendientes...")
@@ -461,7 +474,7 @@ def menu(config):
             try:
                 opciones[eleccion][1]()
             except Exception as e:
-                print(f"⚠ {e}")
+                print(f"[!] {e}")
 
 
 def main():
