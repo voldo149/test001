@@ -1,36 +1,38 @@
 # Capturador Silksong
 
-Toma capturas de pantalla completa con un botón (o combinación) del mando, sin pausar el juego. Solo funciona en Windows, porque usa XInput.
+App para Windows que hace dos cosas con el mando (XInput), sin pausar el juego:
 
-## Instalación
+- **Fotos:** captura de pantalla completa con un botón o combinación.
+- **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
 
-```
-pip install -r requirements.txt
-```
+## Instalación (una sola vez)
+
+1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador Silksong** con icono en el Escritorio y en el menú Inicio.
+2. Para abrirla con **un clic**: busca "Capturador Silksong" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**.
 
 ## Uso
 
-Doble clic en `capturador.py`, o desde la terminal:
-
-```
-python capturador.py            # menú
-python capturador.py agregar    # "presiona el botón con el que tomaremos fotos"
-python capturador.py iniciar    # empieza a escuchar el mando
-python capturador.py listar
-python capturador.py borrar foto1
-python capturador.py probar     # muestra qué botones detecta
-```
-
-Puedes tener varios atajos. Si dos se completan a la vez, gana el que tiene más botones.
+- **Temporizadores → Nuevo:** escribe el nombre de la actividad y, si quieres, presiona el botón del mando que la va a iniciar y parar. También puedes iniciarla o pararla con el botón **Iniciar / Parar** o con doble clic en la fila.
+- Mientras corre un temporizador, el título de la ventana en la barra de tareas muestra el tiempo.
+- **Fotos → Agregar atajo:** escribe un nombre y presiona el botón o la combinación.
+- **Ver historial:** abre `tiempos.csv` en Excel, con una fila por sesión (actividad, inicio, fin, duración).
+- La tabla muestra el tiempo de la sesión en marcha y los totales de hoy, de la semana y de siempre.
+- Si la app se cierra de golpe o se apaga la PC, al abrirla otra vez la sesión se guarda hasta el último momento registrado (cada 30 s).
+- Al cerrar la ventana, los temporizadores en marcha se detienen y se guardan.
 
 ## Para que no se pause ni se ponga lento
 
-- Inicia el capturador **antes** y luego haz clic en el juego. El programa no abre ventanas ni le quita el foco al juego.
-- Pon el juego en **pantalla completa sin bordes** (borderless). En pantalla completa exclusiva, algunas capturas pueden salir negras.
-- Con `dxcam` instalado la captura usa DXGI, que es más rápido. Si no está, se usa `mss`.
-- La imagen se guarda en un hilo aparte (PNG con compresión rápida). Si quieres archivos más pequeños, cambia `"formato": "jpg"` en `config.json`.
-- El proceso corre con prioridad baja para no quitarle CPU al juego.
+- La ventana nunca se pone al frente ni le quita el foco al juego. Ábrela antes y luego haz clic en el juego.
+- Pon el juego en **pantalla completa sin bordes**.
+- La captura usa DXGI (dxcam) y se guarda en un hilo aparte. El proceso corre con prioridad baja.
 
-## config.json
+## Archivos (en esta carpeta, no se suben a git)
 
-Se crea al agregar el primer atajo. Opciones: `carpeta`, `formato`, `calidad_jpg`, `motor` (`auto`/`dxcam`/`mss`), `monitor`, `sonido` (apagado por defecto; también se cambia con la opción 6 del menú), `espera_entre_fotos`.
+- `config.json`: atajos, temporizadores y ajustes.
+- `tiempos.csv`: historial de sesiones.
+- `en_curso.json`: temporizadores en marcha (para recuperar tras un cierre inesperado).
+- `errores.log`: solo si algo falla.
+
+## Versión de consola
+
+`py capturador.py` sigue funcionando igual que antes (solo fotos).

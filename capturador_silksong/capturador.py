@@ -16,6 +16,7 @@ Uso:
 """
 
 import argparse
+import copy
 import ctypes
 import json
 import os
@@ -38,6 +39,7 @@ CONFIG_POR_DEFECTO = {
     "sonido": False,          # aviso de Windows al tomar cada foto
     "espera_entre_fotos": 0.3, # segundos mínimos entre dos fotos del mismo atajo
     "atajos": [],              # [{"nombre": "foto", "botones": ["BACK", "RB"]}]
+    "timers": [],              # [{"nombre": "escribir", "botones": ["BACK", "Y"]}] (botones opcional)
 }
 
 # --------------------------------------------------------------------------
@@ -154,6 +156,9 @@ class XInput:
                 mascara |= BOTONES["RT"]
         return mascara
 
+    def alguno_conectado(self):
+        return any(self._conectados)
+
     def hay_mando(self):
         self._ultimo_chequeo = [0.0] * 4  # fuerza revisar los 4
         self._conectados = [True] * 4
@@ -265,9 +270,10 @@ class Capturador:
 class Guardador(threading.Thread):
     """Codifica y guarda en segundo plano para no bloquear la lectura del mando."""
 
-    def __init__(self, config):
+    def __init__(self, config, aviso=print):
         super().__init__(daemon=True)
         self.config = config
+        self.aviso = aviso  # función que recibe el texto a mostrar
         self.cola = queue.Queue()
         self.carpeta = Path(config["carpeta"]).expanduser()
         self.carpeta.mkdir(parents=True, exist_ok=True)
@@ -280,11 +286,11 @@ class Guardador(threading.Thread):
             nombre_atajo, momento, datos = item
             try:
                 ruta = self._guardar(nombre_atajo, momento, datos)
-                print(f"  [foto] [{nombre_atajo}] {ruta.name}")
+                self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.config["sonido"]:
                     sonar()
             except Exception as e:
-                print(f"  [!] Error al guardar: {e}")
+                self.aviso(f"  [!] Error al guardar: {e}")
             finally:
                 self.cola.task_done()
 
@@ -294,6 +300,9 @@ class Guardador(threading.Thread):
         ext = "jpg" if fmt in ("jpg", "jpeg") else "png"
         sello = momento.strftime("%Y-%m-%d_%H-%M-%S_") + f"{momento.microsecond // 1000:03d}"
         seguro = "".join(c if c.isalnum() or c in "-_" else "_" for c in nombre_atajo)
+        # Se lee cada vez por si la carpeta se cambió desde la app.
+        self.carpeta = Path(self.config["carpeta"]).expanduser()
+        self.carpeta.mkdir(parents=True, exist_ok=True)
         ruta = self.carpeta / f"silksong_{sello}_{seguro}.{ext}"
         if ext == "jpg":
             img.save(ruta, "JPEG", quality=int(self.config["calidad_jpg"]))
@@ -322,7 +331,7 @@ def bajar_prioridad():
 # --------------------------------------------------------------------------
 
 def cargar_config():
-    config = dict(CONFIG_POR_DEFECTO)
+    config = copy.deepcopy(CONFIG_POR_DEFECTO)
     if ARCHIVO_CONFIG.exists():
         with open(ARCHIVO_CONFIG, encoding="utf-8") as f:
             config.update(json.load(f))
@@ -366,9 +375,9 @@ def cmd_agregar(config):
     nombres = mascara_a_nombres(mascara)
     print(f"  Detectado: {texto_combo(nombres)}")
 
-    for a in config["atajos"]:
+    for a in config["atajos"] + [t for t in config["timers"] if t.get("botones")]:
         if nombres_a_mascara(a["botones"]) == mascara:
-            print(f"  Esa combinación ya está asignada al atajo '{a['nombre']}'.")
+            print(f"  Esa combinación ya está asignada a '{a['nombre']}'.")
             return
 
     if len(nombres) == 1:
