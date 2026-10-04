@@ -10,6 +10,9 @@ Cómo evita frenar el juego:
 - Si la RAM usada llega al límite, la grabación se detiene sola.
 
 Archivos: <carpeta>/anim01/<sufijo>-anim01-001.png (o .jpg / .webp), ...
+Animado: <carpeta>/<sufijo>-anim01.avif (un solo archivo que se reproduce
+como un GIF, pero muchísimo más ligero: AV1 aprovecha lo que se repite
+entre cuadros).
 """
 
 import ctypes
@@ -21,10 +24,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
+from PIL import Image, features
+
 import capturador as cap
 
 MB = 1024 * 1024
 PATRON_CARPETA = re.compile(r"^anim(\d+)$", re.IGNORECASE)
+PATRON_AVIF = re.compile(r"-anim(\d+)\.avif$", re.IGNORECASE)
 AVISAR_CADA = 15  # fotogramas entre avisos de progreso
 
 
@@ -55,7 +61,10 @@ def limite_por_defecto():
 def nueva_carpeta(base):
     """Crea la siguiente carpeta animNN libre y devuelve (ruta, numero)."""
     base.mkdir(parents=True, exist_ok=True)
-    usados = [int(m.group(1)) for p in base.iterdir() if p.is_dir() and (m := PATRON_CARPETA.match(p.name))]
+    # Cuentan las carpetas animNN y también los .avif sueltos (su carpeta ya se borró).
+    usados = [int(m.group(1)) for p in base.iterdir()
+              if (p.is_dir() and (m := PATRON_CARPETA.match(p.name)))
+              or (p.is_file() and (m := PATRON_AVIF.search(p.name)))]
     numero = max(usados, default=0) + 1
     while True:
         ruta = base / f"anim{numero:02d}"
@@ -86,6 +95,56 @@ class Limitador:
             self._cond.notify_all()
 
 
+class CuadroDiferido(Image.Image):
+    """Cuadro que se lee del disco solo cuando el codificador lo pide.
+
+    Así crear el AVIF no necesita tener todos los cuadros en memoria a la vez.
+    """
+
+    def __init__(self, ruta, tam):
+        super().__init__()
+        self._mode = "RGB"
+        self._size = tam
+        self.ruta = ruta
+
+    def seek(self, frame):
+        if frame != 0:
+            raise EOFError
+
+    def tell(self):
+        return 0
+
+    def tobytes(self, encoder_name="raw", *args):
+        with Image.open(self.ruta) as img:
+            return img.convert("RGB").tobytes(encoder_name, *args)
+
+
+def avif_disponible():
+    try:
+        return bool(features.check("avif"))
+    except Exception:
+        return False
+
+
+def duraciones(n, fps):
+    """Milisegundos por cuadro que suman exacto (60 fps -> 17, 17, 16, ...)."""
+    return [round((i + 1) * 1000 / fps) - round(i * 1000 / fps) for i in range(n)]
+
+
+def crear_avif(rutas, destino, fps, calidad=80, hilos=None):
+    """Une los cuadros en un AVIF animado. Escribe a un temporal y luego renombra."""
+    with Image.open(rutas[0]) as img:
+        primero = img.convert("RGB")
+    resto = [CuadroDiferido(r, primero.size) for r in rutas[1:]]
+    opciones = dict(save_all=True, append_images=resto, duration=duraciones(len(rutas), fps),
+                    loop=0, quality=calidad, speed=8)
+    if hilos:
+        opciones["max_threads"] = hilos
+    temporal = destino.with_name(destino.name + ".tmp")
+    primero.save(temporal, "AVIF", **opciones)
+    temporal.replace(destino)
+
+
 def _tam(datos):
     tipo, obj = datos
     return obj.nbytes if tipo == "bgra" else len(obj.raw)
@@ -104,6 +163,7 @@ class GrabadorAnimacion:
         self.avisar = avisar  # función(*evento)
         self.config = config  # se lee "prioridad" en vivo
         self.resolucion = config.get("resolucion", "nativa")  # fija para toda la animación
+        self.salida = config.get("anim_salida", "avif")        # "cuadros", "avif" o "ambos"
 
         self.carpeta = None
         self.numero = None
@@ -207,8 +267,35 @@ class GrabadorAnimacion:
                 if actual != nuevo:
                     actual.rename(nuevo)
 
-        self.avisar("anim_guardada", self.carpeta, self.total, self.total / self.fps,
+        final = self.carpeta
+        if self.salida != "cuadros" and self.total and not errores:
+            final, error_avif = self._hacer_avif(ancho if ancho > 3 else 3)
+            if error_avif:
+                errores.append(error_avif)
+        self.avisar("anim_guardada", self.carpeta, final, self.total, self.total / self.fps,
                     str(errores[0]) if errores else None)
+
+    def _hacer_avif(self, ancho):
+        """Crea el AVIF animado. Devuelve (ruta final, error o None)."""
+        if not avif_disponible():
+            return self.carpeta, "este Pillow no tiene AVIF (ejecuta instalar.bat); se dejaron los cuadros"
+        nombre = f"{self.sufijo}-anim{self.numero:02d}.avif"
+        # Solo AVIF: queda junto a las fotos. Ambos: dentro de la carpeta de cuadros.
+        destino = (self.base if self.salida == "avif" else self.carpeta) / nombre
+        n = 2
+        while destino.exists():  # nunca sobrescribir una animación anterior
+            destino = destino.with_name(f"{self.sufijo}-anim{self.numero:02d}-{n}.avif")
+            n += 1
+        rutas = [self._ruta(i, ancho) for i in range(self.total)]
+        self.avisar("anim_avif", self.carpeta)
+        try:
+            cap.prioridad_hilo(self._modo())
+            crear_avif(rutas, destino, self.fps, hilos=self._hilos.get(self._modo()))
+        except Exception as e:
+            return self.carpeta, f"no se pudo crear el AVIF ({e}); se dejaron los cuadros"
+        if self.salida == "avif":
+            shutil.rmtree(self.carpeta, ignore_errors=True)
+        return destino, None
 
     def _capturar(self):
         """Bucle de captura a ritmo fijo. Devuelve (mapa, futuros, primer_fotograma, motivo)."""

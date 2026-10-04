@@ -540,6 +540,7 @@ class App:
         self.config.setdefault("timer_seleccionado", None)
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("anim_fps", 60)
+        self.config.setdefault("anim_salida", "avif")
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
         self._grabando_desde = None
         self._migrar_botones_propios()
@@ -727,6 +728,15 @@ class App:
         self.fila_anim = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
                                       border_color=BORDE)
         self.fila_anim.pack(**pad)
+        ctk.CTkLabel(der, text="Guardar como", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(12, 4), **pad)
+        nombres_salida = {"avif": "AVIF animado", "cuadros": "Cuadros", "ambos": "Ambos"}
+        self.seg_salida = ctk.CTkSegmentedButton(
+            der, values=list(nombres_salida.values()), height=34, corner_radius=8, font=fuente(12),
+            command=lambda v: self._cambiar_salida({n: k for k, n in nombres_salida.items()}[v]),
+            fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
+            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
+        self.seg_salida.set(nombres_salida.get(self.config["anim_salida"], "AVIF animado"))
+        self.seg_salida.pack(**pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -820,6 +830,16 @@ class App:
         self.config["fotos_solo_con_timer"] = self.var_solo_timer.get()
         self.config["sonido_anim"] = self.var_sonido_anim.get()
         self._guardar()
+
+    def _cambiar_salida(self, salida):
+        self.config["anim_salida"] = salida
+        self._guardar()
+        textos = {"avif": "un solo archivo .avif animado junto a las fotos",
+                  "cuadros": "una carpeta animNN con cada cuadro",
+                  "ambos": "la carpeta de cuadros con el .avif animado adentro"}
+        self.log(f"Las animaciones se guardarán como {textos[salida]}.")
+        if salida != "cuadros" and not animacion.avif_disponible():
+            self.log("[!] Tu Pillow no tiene AVIF: ejecuta instalar.bat para actualizarlo.")
 
     def _cambiar_resolucion(self, valor):
         self.config["resolucion"] = "720p" if valor == "720p" else "nativa"
@@ -945,7 +965,7 @@ class App:
         carpeta = Path(self.config["carpeta"]).expanduser()
         try:
             elementos = [p for p in carpeta.iterdir()
-                         if p.suffix.lower() in EXTENSIONES_FOTO
+                         if p.suffix.lower() in EXTENSIONES_FOTO or p.suffix.lower() == ".avif"
                          or (p.is_dir() and animacion.PATRON_CARPETA.match(p.name))]
             elementos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         except OSError:
@@ -955,7 +975,11 @@ class App:
             if len(lista) >= MAX_MINIATURAS:
                 break
             try:
-                if ruta.is_dir():
+                if ruta.suffix.lower() == ".avif":
+                    with Image.open(ruta) as img:
+                        n = getattr(img, "n_frames", 1)
+                        lista.append((ruta, marcar_animacion(hacer_miniatura(img.convert("RGB")), n), n))
+                elif ruta.is_dir():
                     cuadros = sorted(p for p in ruta.iterdir() if p.suffix.lower() in EXTENSIONES_FOTO)
                     if not cuadros:
                         continue
@@ -979,7 +1003,12 @@ class App:
             celda.grid(row=i // 2, column=i % 2, sticky="nsew", padx=5, pady=5)
             foto = ctk.CTkLabel(celda, text="", image=ctk.CTkImage(img, size=TAM_MINIATURA), cursor="hand2")
             foto.pack(padx=4, pady=(4, 0))
-            texto = f"{ruta.name} · animación" if cuadros else etiqueta_foto(ruta)
+            if not cuadros:
+                texto = etiqueta_foto(ruta)
+            elif ruta.is_dir():
+                texto = f"{ruta.name} · cuadros"
+            else:
+                texto = ruta.stem
             etiqueta = ctk.CTkLabel(celda, text=texto[:24], font=fuente(10), text_color=TENUE,
                                     anchor="w", height=20)
             etiqueta.pack(fill="x", padx=8, pady=(0, 4))
@@ -1338,11 +1367,18 @@ class App:
         elif tipo == "anim_guardando":
             carpeta, hechos, total = datos
             self.lbl_estado.configure(text=f"Capturador  ·  Guardando {carpeta.name}: {hechos}/{total} cuadros")
+        elif tipo == "anim_avif":
+            self.lbl_estado.configure(text=f"Capturador  ·  Creando el AVIF animado de {datos[0].name}…")
         elif tipo == "anim_guardada":
-            carpeta, total, segundos, error = datos
+            carpeta, final, total, segundos, error = datos
+            # La miniatura apuntaba a la carpeta; ahora al resultado final (p. ej. el .avif).
+            self.miniaturas = [(final if r == carpeta else r, img, n) for r, img, n in self.miniaturas]
+            self._dibujar_miniaturas()
             if error:
-                self.log(f"[!] {carpeta.name}: error al guardar ({error})")
-            elif total:
+                self.log(f"[!] {carpeta.name}: {error}")
+            if total and final.is_file():
+                self.log(f"✓ {final.name}: {total} cuadros ({segundos:.1f} s), {final.stat().st_size / 1e6:.2f} MB")
+            elif total and not error:
                 self.log(f"✓ {carpeta.name} guardada: {total} cuadros ({segundos:.1f} s)")
 
 

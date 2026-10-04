@@ -1,5 +1,5 @@
 mss
-Pillow
+Pillow>=11.3
 numpy
 dxcam
 customtkinter>=5.2

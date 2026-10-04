@@ -39,7 +39,10 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 
 - Fotos: `doric-001.png`, `doric-002.png`, … (sigue el número más alto que ya exista).
-- Animaciones: cada una en su subcarpeta `anim01`, `anim02`, … con `doric-anim01-001.png`, `doric-anim01-002.png`, …
+- Animaciones: según **Guardar como**:
+  - **AVIF animado** (por defecto): un solo archivo `doric-anim01.avif` junto a las fotos.
+  - **Cuadros:** subcarpeta `anim01` con `doric-anim01-001.png`, `doric-anim01-002.png`, …
+  - **Ambos:** la subcarpeta de cuadros con `doric-anim01.avif` adentro.
 
 ## Animaciones (60 fps)
 
@@ -49,6 +52,22 @@ Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 - En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
+
+## Animaciones para la guía: AVIF animado
+
+Medido con 2 segundos a 60 fps, 720p, la cámara recorriendo una escena del juego:
+
+| Cómo se guarda | Tamaño |
+|---|---|
+| 120 PNG sueltos | 69.5 MB |
+| GIF animado | 37.3 MB (y solo 256 colores) |
+| 120 WEBP sueltos | 5.5 MB |
+| WEBP animado | 5.6 MB (no aprovecha lo que se repite entre cuadros) |
+| **AVIF animado** | **0.15 MB**, con la misma calidad que el WEBP |
+
+El AVIF usa el mismo tipo de compresión que el video (AV1): solo guarda lo que cambia entre cuadros. Se reproduce solo y en bucle, como un GIF, en Chrome, Edge, Firefox y Safari. Con escenas de juego reales con más movimiento la ventaja será menor, pero sigue siendo enorme. Antes de usarlo, confirma que el editor de la guía acepta `.avif`. Si no, elige **Cuadros**.
+
+Necesita Pillow 11.3 o más nuevo; `instalar.bat` lo actualiza. Se crea después de guardar los cuadros, leyéndolos de uno en uno, así no necesita tener toda la animación en memoria.
 
 ## Formato: PNG, JPG o WEBP
 
