@@ -31,6 +31,7 @@ class RegistroTiempos:
         self.sesiones = []   # [(actividad, inicio, fin)]
         self.en_curso = {}   # actividad -> inicio
         self.recuperadas = []  # sesiones salvadas de un cierre inesperado
+        self.ultimo_latido = None
         self._cargar()
         self._recuperar()
 
@@ -87,6 +88,7 @@ class RegistroTiempos:
             self.archivo_en_curso.unlink(missing_ok=True)
             return
         ahora = ahora or datetime.now()
+        self.ultimo_latido = ahora
         datos = {
             "latido": ahora.isoformat(timespec="seconds"),
             "timers": {a: i.isoformat(timespec="seconds") for a, i in self.en_curso.items()},
@@ -112,6 +114,14 @@ class RegistroTiempos:
         self._anotar(actividad, inicio, fin)
         self.latido(fin)
         return fin - inicio
+
+    def cancelar(self, actividad):
+        """Descarta la sesión en marcha como si nunca hubiera pasado. Devuelve lo descartado."""
+        inicio = self.en_curso.pop(actividad, None)
+        if inicio is None:
+            return None
+        self.latido()
+        return datetime.now() - inicio
 
     def alternar(self, actividad, momento=None):
         """Inicia o detiene. Devuelve (corriendo_ahora, duracion_si_paro)."""
