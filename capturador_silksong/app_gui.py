@@ -19,8 +19,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
+import animacion
 import capturador as cap
 from tiempos import RegistroTiempos, formato_duracion
 
@@ -105,6 +106,36 @@ def etiqueta_foto(ruta):
         return f"{fecha:%d/%m %H:%M}" + (f" · {resto}" if resto else "")
     except (IndexError, ValueError):
         return ruta.stem
+
+
+def sonido_anim(inicio):
+    """Dos tonos: subiendo = empieza a grabar, bajando = terminó."""
+    if os.name != "nt":
+        return
+    import winsound
+    tonos = (880, 1320) if inicio else (1320, 880)
+    threading.Thread(target=lambda: [winsound.Beep(f, 80) for f in tonos], daemon=True).start()
+
+
+def marcar_animacion(img, n):
+    """Dibuja sobre la miniatura una etiqueta '▶ 120' para distinguir animaciones."""
+    img = img.copy()
+    d = ImageDraw.Draw(img, "RGBA")
+    try:
+        letra = ImageFont.load_default(size=max(14, img.height // 6))
+    except TypeError:
+        letra = ImageFont.load_default()
+    texto = f"{n}" if n else "ANIM"
+    x0, y0, alto = 8, 8, max(22, int(img.height / 4.2))
+    ancho_txt = d.textlength(texto, font=letra)
+    ancho = int(alto * 0.9 + ancho_txt + 10)
+    d.rounded_rectangle((x0, y0, x0 + ancho, y0 + alto), radius=alto // 3, fill=(7, 16, 29, 215),
+                        outline=(41, 206, 142, 255), width=1)
+    t = alto * 0.28
+    cx, cy = x0 + alto * 0.45, y0 + alto / 2
+    d.polygon([(cx - t * 0.6, cy - t), (cx - t * 0.6, cy + t), (cx + t, cy)], fill=(41, 206, 142, 255))
+    d.text((x0 + alto * 0.9, cy), texto, font=letra, fill=(232, 238, 247, 255), anchor="lm")
+    return img
 
 
 def hacer_miniatura(img):
@@ -346,6 +377,9 @@ class Escucha(threading.Thread):
         self._grabar = False
         self._detener = threading.Event()
         self.hay_timer = False  # la ventana lo actualiza: ¿hay algún temporizador en marcha?
+        self.grabador = None    # animación en curso (o guardándose)
+        self.grabadores = []    # todas las que aún no terminan de guardarse
+        self.guardador = None
 
     def recargar(self):
         self._recargar = True
@@ -362,6 +396,37 @@ class Escucha(threading.Thread):
     def _avisar(self, *evento):
         self.eventos.put(evento)
 
+    @property
+    def grabando_animacion(self):
+        return self.grabador is not None and self.grabador.grabando
+
+    def detener_animacion(self):
+        if self.grabando_animacion:
+            self.grabador.detener()
+
+    def ocupado(self):
+        """True mientras haya fotos o animaciones pendientes de guardar."""
+        self.grabadores = [g for g in self.grabadores if g.ocupado()]
+        cola = self.guardador.cola.unfinished_tasks if self.guardador else 0
+        return bool(self.grabadores) or cola > 0
+
+    def _alternar_animacion(self):
+        if self.grabando_animacion:
+            self.grabador.detener()
+            return
+        if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
+            self._avisar("log", "Animación ignorada: no hay ningún temporizador en marcha.")
+            return
+        try:
+            g = animacion.GrabadorAnimacion(self.config, self._avisar)
+            g.iniciar()
+        except Exception as e:
+            self._avisar("log", f"[!] No se pudo iniciar la animación: {e}")
+            return
+        self.grabador = g
+        self.grabadores.append(g)
+        self._avisar("anim_inicio", g.carpeta)
+
     def _construir_detector(self):
         atajos, acciones = [], {}
         for a in self.config["atajos"]:
@@ -371,6 +436,9 @@ class Escucha(threading.Thread):
         if self.config.get("atajo_timer"):
             atajos.append({"nombre": "global", "botones": self.config["atajo_timer"]})
             acciones["global"] = ("global", None)
+        if self.config.get("atajo_anim"):
+            atajos.append({"nombre": "anim", "botones": self.config["atajo_anim"]})
+            acciones["anim"] = ("anim", None)
         self.acciones = acciones
         self.detector = cap.DetectorAtajos(atajos, self.config["espera_entre_fotos"])
 
@@ -397,6 +465,7 @@ class Escucha(threading.Thread):
         guardador = cap.Guardador(self.config, aviso=lambda t: self._avisar("log", t.strip()),
                                   al_guardar=self._guardada)
         guardador.start()
+        self.guardador = guardador
 
         conectado = None
         ultimo_estado = 0.0
@@ -438,6 +507,8 @@ class Escucha(threading.Thread):
                     if tipo == "foto":
                         if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
                             self._avisar("log", "Foto ignorada: no hay ningún temporizador en marcha.")
+                        elif self.grabando_animacion:
+                            self._avisar("log", "Foto ignorada: se está grabando una animación.")
                         elif capturador is None:
                             self._avisar("log", "[!] La captura de pantalla no está disponible.")
                         else:
@@ -447,9 +518,12 @@ class Escucha(threading.Thread):
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
                         self._avisar("timer_global", datetime.now())
+                    elif tipo == "anim":
+                        self._alternar_animacion()
 
             time.sleep(cap.INTERVALO_LECTURA)
 
+        self.detener_animacion()
         guardador.cola.join()
 
 
@@ -464,6 +538,10 @@ class App:
         self.config.setdefault("pitido_timers", False)
         self.config.setdefault("fotos_solo_con_timer", True)
         self.config.setdefault("timer_seleccionado", None)
+        self.config.setdefault("sonido_anim", True)
+        self.config.setdefault("anim_fps", 60)
+        self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
+        self._grabando_desde = None
         self._migrar_botones_propios()
         self._ultimo_tick = datetime.now()
         self.registro = RegistroTiempos(CARPETA)
@@ -547,6 +625,8 @@ class App:
                                            text_color=TENUE, fg_color=TARJETA, corner_radius=14,
                                            height=30, padx=12)
         self.pastilla_mando.pack(side="left", padx=(0, 14))
+        self.pastilla_rec = ctk.CTkLabel(derecha, text="", font=fuente(12, "bold"), text_color=ROJO,
+                                         fg_color=ROJO_FONDO, corner_radius=14, height=30, padx=12)
         boton(derecha, "Abrir fotos", self.abrir_fotos, "verde", width=120).pack(side="left", padx=(0, 8))
         boton(derecha, "Historial", self.abrir_historial, "azul", width=110).pack(side="left")
 
@@ -556,7 +636,7 @@ class App:
         izq = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=0, width=290)
         izq.grid(row=1, column=0, sticky="ns")
         izq.grid_propagate(False)
-        izq.grid_rowconfigure(1, weight=1)
+        izq.grid_rowconfigure(3, weight=1)
         izq.grid_columnconfigure(0, weight=1)
 
         barra = ctk.CTkFrame(izq, fg_color="transparent")
@@ -569,9 +649,20 @@ class App:
         self.ins_fotos = insignia(barra, "0")
         self.ins_fotos.pack(side="left")
 
+        suf = ctk.CTkFrame(izq, fg_color="transparent")
+        suf.grid(row=1, column=0, sticky="ew", padx=14)
+        ctk.CTkLabel(suf, text="Sufijo", font=fuente(12), text_color=TENUE).pack(side="left", padx=(2, 8))
+        self.var_sufijo = tk.StringVar(value=cap.limpiar_sufijo(self.config.get("sufijo")))
+        ctk.CTkEntry(suf, textvariable=self.var_sufijo, height=32, fg_color=TARJETA, border_color=BORDE,
+                     text_color=TEXTO, font=fuente(13)).pack(side="left", fill="x", expand=True)
+        self.lbl_ejemplo = ctk.CTkLabel(izq, text="", font=fuente(10), text_color=TENUE, anchor="w")
+        self.lbl_ejemplo.grid(row=2, column=0, sticky="ew", padx=18, pady=(2, 8))
+        self.var_sufijo.trace_add("write", lambda *a: self._sufijo_cambiado())
+
         self.grilla_fotos = ctk.CTkScrollableFrame(izq, fg_color="transparent", scrollbar_button_color=BORDE,
                                                    scrollbar_button_hover_color=TENUE)
-        self.grilla_fotos.grid(row=1, column=0, sticky="nsew", padx=(8, 4), pady=(0, 8))
+        self.grilla_fotos.grid(row=3, column=0, sticky="nsew", padx=(8, 4), pady=(0, 8))
+        self._sufijo_cambiado()
         self.grilla_fotos.grid_columnconfigure((0, 1), weight=1, uniform="foto")
 
         ctk.CTkFrame(r, width=1, fg_color=BORDE, corner_radius=0).grid(row=1, column=0, sticky="nse")
@@ -621,6 +712,16 @@ class App:
 
         separador(der).pack(pady=20, **pad)
 
+        cab, _ = titulo_seccion(der, "Atajo de animación", f"{self.config['anim_fps']} fps")
+        cab.pack(pady=(0, 4), **pad)
+        ctk.CTkLabel(der, text="Una vez para grabar, otra para terminar.", font=fuente(12),
+                     text_color=TENUE, anchor="w").pack(pady=(0, 8), **pad)
+        self.fila_anim = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
+                                      border_color=BORDE)
+        self.fila_anim.pack(**pad)
+
+        separador(der).pack(pady=20, **pad)
+
         # Fotos
         cab, self.ins_atajos = titulo_seccion(der, "Atajos de foto", "0")
         cab.pack(pady=(0, 10), **pad)
@@ -660,6 +761,8 @@ class App:
         self.var_pitido = tk.BooleanVar(value=self.config["pitido_timers"])
         interruptor("Sonido al tomar foto", self.var_sonido).pack(pady=5, **pad)
         interruptor("Pitido al iniciar/parar con el mando", self.var_pitido).pack(pady=5, **pad)
+        self.var_sonido_anim = tk.BooleanVar(value=self.config["sonido_anim"])
+        interruptor("Sonido al grabar animación", self.var_sonido_anim).pack(pady=5, **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -699,6 +802,7 @@ class App:
         self.config["sonido"] = self.var_sonido.get()
         self.config["pitido_timers"] = self.var_pitido.get()
         self.config["fotos_solo_con_timer"] = self.var_solo_timer.get()
+        self.config["sonido_anim"] = self.var_sonido_anim.get()
         self._guardar()
 
     def _cambiar_formato(self, valor):
@@ -791,6 +895,8 @@ class App:
             self.ins_activos.configure(text=texto.upper(), text_color=VERDE if en_marcha else TENUE)
         # El título se ve en la barra de tareas sin abrir la ventana.
         titulo = f"▶ {', '.join(en_marcha)} — {TITULO}" if en_marcha else TITULO
+        if self._grabando_desde is not None:
+            titulo = "● REC — " + titulo
         if self.root.title() != titulo:
             self.root.title(titulo)
         if reprogramar:
@@ -803,19 +909,31 @@ class App:
     # ------------------------------------------------------------------ miniaturas
 
     def _cargar_miniaturas(self):
-        """Hilo: lee las fotos más recientes de la carpeta al abrir la app."""
+        """Hilo: lee las fotos y animaciones más recientes de la carpeta al abrir la app."""
         carpeta = Path(self.config["carpeta"]).expanduser()
         try:
-            archivos = sorted((p for p in carpeta.iterdir() if p.suffix.lower() in EXTENSIONES_FOTO),
-                              key=lambda p: p.stat().st_mtime, reverse=True)[:MAX_MINIATURAS]
+            elementos = [p for p in carpeta.iterdir()
+                         if p.suffix.lower() in EXTENSIONES_FOTO
+                         or (p.is_dir() and animacion.PATRON_CARPETA.match(p.name))]
+            elementos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         except OSError:
-            archivos = []
+            elementos = []
         lista = []
-        for ruta in archivos:
+        for ruta in elementos:
+            if len(lista) >= MAX_MINIATURAS:
+                break
             try:
-                with Image.open(ruta) as img:
-                    img.draft("RGB", (TAM_MINIATURA[0] * 2, TAM_MINIATURA[1] * 2))  # acelera JPG
-                    lista.append((ruta, hacer_miniatura(img)))
+                if ruta.is_dir():
+                    cuadros = sorted(p for p in ruta.iterdir() if p.suffix.lower() in EXTENSIONES_FOTO)
+                    if not cuadros:
+                        continue
+                    with Image.open(cuadros[0]) as img:
+                        img.draft("RGB", (TAM_MINIATURA[0] * 2, TAM_MINIATURA[1] * 2))
+                        lista.append((ruta, marcar_animacion(hacer_miniatura(img), len(cuadros)), len(cuadros)))
+                else:
+                    with Image.open(ruta) as img:
+                        img.draft("RGB", (TAM_MINIATURA[0] * 2, TAM_MINIATURA[1] * 2))  # acelera JPG
+                        lista.append((ruta, hacer_miniatura(img), None))
             except Exception:
                 continue
         self.eventos.put(("miniaturas", lista))
@@ -823,19 +941,20 @@ class App:
     def _dibujar_miniaturas(self):
         for w in self.grilla_fotos.winfo_children():
             w.destroy()
-        for i, (ruta, img) in enumerate(self.miniaturas):
+        for i, (ruta, img, cuadros) in enumerate(self.miniaturas):
             celda = ctk.CTkFrame(self.grilla_fotos, fg_color=TARJETA, corner_radius=8, border_width=1,
                                  border_color=BORDE)
             celda.grid(row=i // 2, column=i % 2, sticky="nsew", padx=5, pady=5)
             foto = ctk.CTkLabel(celda, text="", image=ctk.CTkImage(img, size=TAM_MINIATURA), cursor="hand2")
             foto.pack(padx=4, pady=(4, 0))
-            etiqueta = ctk.CTkLabel(celda, text=etiqueta_foto(ruta)[:24], font=fuente(10), text_color=TENUE,
+            texto = f"{ruta.name} · animación" if cuadros else etiqueta_foto(ruta)
+            etiqueta = ctk.CTkLabel(celda, text=texto[:24], font=fuente(10), text_color=TENUE,
                                     anchor="w", height=20)
             etiqueta.pack(fill="x", padx=8, pady=(0, 4))
             for w in (foto, etiqueta):
                 w.bind("<Button-1>", lambda e, r=ruta: abrir(r))
         if not self.miniaturas:
-            ctk.CTkLabel(self.grilla_fotos, text="Aquí aparecerán\ntus fotos recientes.", font=fuente(12),
+            ctk.CTkLabel(self.grilla_fotos, text="Aquí aparecerán tus\nfotos y animaciones.", font=fuente(12),
                          text_color=TENUE).grid(row=0, column=0, columnspan=2, pady=40)
         self.ins_fotos.configure(text=str(len(self.miniaturas)))
 
@@ -870,9 +989,11 @@ class App:
                     del self.miniaturas[MAX_MINIATURAS:]
                     self._dibujar_miniaturas()
                 elif tipo == "miniatura":
-                    self.miniaturas.insert(0, (evento[1], evento[2]))
+                    self.miniaturas.insert(0, (evento[1], evento[2], None))
                     del self.miniaturas[MAX_MINIATURAS:]
                     self._dibujar_miniaturas()
+                elif tipo.startswith("anim_"):
+                    self._evento_animacion(tipo, evento[1:])
         except queue.Empty:
             pass
         self.root.after(50, self._procesar_eventos)
@@ -933,7 +1054,8 @@ class App:
             return
         nombres = cap.mascara_a_nombres(mascara)
         duenos = self.config["atajos"] + [
-            {"nombre": "atajo de temporizador", "botones": self.config.get("atajo_timer")}]
+            {"nombre": "atajo de temporizador", "botones": self.config.get("atajo_timer")},
+            {"nombre": "atajo de animación", "botones": self.config.get("atajo_anim")}]
         for dueno in duenos:
             if dueno.get("botones") and cap.nombres_a_mascara(dueno["botones"]) == mascara:
                 Dialogo.mostrar(self.root, "Combinación ocupada",
@@ -1058,19 +1180,38 @@ class App:
     # ------------------------------------------------------------------ atajo global
 
     def _refrescar_global(self):
-        for w in self.fila_global.winfo_children():
-            w.destroy()
-        atajo = self.config.get("atajo_timer")
-        if atajo:
-            insignia(self.fila_global, cap.texto_combo(atajo), color=VERDE, borde=VERDE_BORDE).pack(
-                side="left", padx=14, pady=12)
-            boton(self.fila_global, "Quitar", self.quitar_global, "fantasma", width=10, height=28,
-                  font=fuente(12)).pack(side="right", padx=8)
-        else:
-            ctk.CTkLabel(self.fila_global, text="Sin asignar", font=fuente(13), text_color=TENUE).pack(
-                side="left", padx=14, pady=10)
-            boton(self.fila_global, "Asignar", self.asignar_global, "verde", width=90, height=30).pack(
-                side="right", padx=8, pady=8)
+        """Dibuja las filas del atajo de temporizador y del de animación."""
+        for fila, clave, asignar, quitar in ((self.fila_global, "atajo_timer", self.asignar_global, self.quitar_global),
+                                             (self.fila_anim, "atajo_anim", self.asignar_anim, self.quitar_anim)):
+            for w in fila.winfo_children():
+                w.destroy()
+            atajo = self.config.get(clave)
+            if atajo:
+                insignia(fila, cap.texto_combo(atajo), color=VERDE, borde=VERDE_BORDE).pack(
+                    side="left", padx=14, pady=12)
+                boton(fila, "Quitar", quitar, "fantasma", width=10, height=28,
+                      font=fuente(12)).pack(side="right", padx=8)
+            else:
+                ctk.CTkLabel(fila, text="Sin asignar", font=fuente(13), text_color=TENUE).pack(
+                    side="left", padx=14, pady=10)
+                boton(fila, "Asignar", asignar, "verde", width=90, height=30).pack(
+                    side="right", padx=8, pady=8)
+
+    def asignar_anim(self):
+        def listo(botones):
+            self.config["atajo_anim"] = botones
+            self._guardar()
+            self.escucha.recargar()
+            self._refrescar_global()
+            self.log(f"Atajo de animación = {cap.texto_combo(botones)}")
+        self._grabar_combo("Atajo de animación", listo)
+
+    def quitar_anim(self):
+        self.escucha.detener_animacion()
+        self.config.pop("atajo_anim", None)
+        self._guardar()
+        self.escucha.recargar()
+        self._refrescar_global()
 
     def asignar_global(self):
         def listo(botones):
@@ -1111,9 +1252,65 @@ class App:
 
     def cerrar(self):
         self.registro.parar_todos()
+        self.escucha.detener_animacion()
+        if self.escucha.ocupado():
+            # No perder fotogramas que aún están en memoria: esperar a que se guarden.
+            self.log("Terminando de guardar antes de cerrar…")
+            self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+            self.root.after(300, self.cerrar)
+            return
         self.escucha.detener()
         self.escucha.join(timeout=3)
         self.root.destroy()
+
+    # ------------------------------------------------------------------ sufijo y animaciones
+
+    def _sufijo_cambiado(self):
+        sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
+        self.lbl_ejemplo.configure(text=f"{sufijo}-001.png  ·  {sufijo}-anim01-001.png")
+        if self.config.get("sufijo") != sufijo:
+            self.config["sufijo"] = sufijo
+            # Guardar el archivo sin escribirlo con cada tecla.
+            if getattr(self, "_guardar_sufijo", None):
+                self.root.after_cancel(self._guardar_sufijo)
+            self._guardar_sufijo = self.root.after(600, self._guardar)
+
+    def _evento_animacion(self, tipo, datos):
+        if tipo == "anim_inicio":
+            self._grabando_desde = time.monotonic()
+            self.pastilla_rec.configure(text="●  REC 0:00")
+            self.pastilla_rec.pack(side="left", padx=(0, 10), before=self.pastilla_mando)
+            self.log(f"● Grabando animación en {datos[0].name}…")
+            if self.config["sonido_anim"]:
+                sonido_anim(True)
+        elif tipo == "anim_progreso":
+            cuadros, segundos = datos
+            self.pastilla_rec.configure(text=f"●  REC {int(segundos) // 60}:{int(segundos) % 60:02d} · {cuadros}")
+        elif tipo == "anim_fin":
+            carpeta, miniatura, total, motivo = datos
+            self._grabando_desde = None
+            self.pastilla_rec.pack_forget()
+            if self.config["sonido_anim"]:
+                sonido_anim(False)
+            if motivo.startswith("error"):
+                self.log(f"[!] Animación {carpeta.name}: {motivo}")
+            else:
+                extra = " (se llegó al límite de memoria)" if motivo == "límite de memoria" else ""
+                self.log(f"■ {carpeta.name}: {total} cuadros grabados{extra}. Guardando…")
+            if miniatura is not None and total:
+                img = marcar_animacion(hacer_miniatura(miniatura), total)
+                self.miniaturas.insert(0, (carpeta, img, total))
+                del self.miniaturas[MAX_MINIATURAS:]
+                self._dibujar_miniaturas()
+        elif tipo == "anim_guardando":
+            carpeta, hechos, total = datos
+            self.lbl_estado.configure(text=f"Capturador  ·  Guardando {carpeta.name}: {hechos}/{total} cuadros")
+        elif tipo == "anim_guardada":
+            carpeta, total, segundos, error = datos
+            if error:
+                self.log(f"[!] {carpeta.name}: error al guardar ({error})")
+            elif total:
+                self.log(f"✓ {carpeta.name} guardada: {total} cuadros ({segundos:.1f} s)")
 
 
 # --------------------------------------------------------------------------

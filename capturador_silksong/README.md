@@ -1,8 +1,9 @@
 # Capturador Silksong
 
-App para Windows que hace dos cosas con el mando (XInput), sin pausar el juego:
+App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 - **Fotos:** captura de pantalla completa con un botón o combinación.
+- **Animaciones:** secuencias de imágenes a 60 fps. Un atajo empieza a grabar y el mismo atajo termina.
 - **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
 
 ## Instalación (una sola vez)
@@ -14,7 +15,7 @@ App para Windows que hace dos cosas con el mando (XInput), sin pausar el juego:
 
 Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide en tres columnas:
 
-- **Izquierda:** fotos recientes en miniatura. Clic en una para abrirla.
+- **Izquierda:** el **sufijo** de los archivos y las fotos recientes en miniatura. Clic en una para abrirla. Las animaciones aparecen como una sola miniatura (su primer cuadro) con la etiqueta ▶ y el número de cuadros. Al hacer clic se abre su carpeta.
 - **Centro:** una tarjeta por temporizador, con el tiempo en grande y los totales de hoy, semana y total.
 - **Derecha:** atajos de foto, formato, carpeta, sonidos y registro de actividad.
 
@@ -32,6 +33,22 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 - **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
 - **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Se apaga con el interruptor en "Atajos de foto".
 - **Cancelar:** aparece en la tarjeta mientras corre. Descarta la sesión actual como si nunca hubiera pasado, por ejemplo si lo dejaste corriendo por accidente. Pide confirmación y no toca las sesiones anteriores.
+
+## Nombres de archivo
+
+Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
+
+- Fotos: `doric-001.png`, `doric-002.png`, … (sigue el número más alto que ya exista).
+- Animaciones: cada una en su subcarpeta `anim01`, `anim02`, … con `doric-anim01-001.png`, `doric-anim01-002.png`, …
+
+## Animaciones (60 fps)
+
+- Asigna el **Atajo de animación** en la columna derecha. Presiónalo una vez para empezar (suena un tono que sube) y otra para terminar (suena un tono que baja). Mientras graba, arriba aparece **● REC** con el tiempo y los cuadros.
+- Si la pantalla no cambió en un cuadro, se repite el anterior, así la secuencia siempre dura lo mismo que en la realidad.
+- Los cuadros esperan en memoria y se guardan con hilos de prioridad mínima mientras grabas y después de parar, para no quitarle fluidez al juego. Si se llega al límite de memoria (35 % de la RAM, máximo 6 GB), la grabación se detiene sola.
+- Ocupan bastante espacio: a 1080p en PNG son unos 150–250 MB por segundo. En JPG mucho menos.
+- Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
+- Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
 
 ## Si se cierra o se apaga la PC
 

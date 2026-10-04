@@ -21,6 +21,7 @@ import ctypes
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -35,6 +36,7 @@ ARCHIVO_CONFIG = CARPETA_SCRIPT / "config.json"
 
 CONFIG_POR_DEFECTO = {
     "carpeta": str(Path.home() / "Pictures" / "Silksong"),
+    "sufijo": "captura",       # fotos: captura-001.png; animaciones: anim01/captura-anim01-001.png
     "formato": "png",          # "png" o "jpg"
     "calidad_jpg": 95,
     "motor": "auto",           # "auto", "dxcam" o "mss"
@@ -260,13 +262,22 @@ class Capturador:
         shot = self._mss.grab(self._mss.monitors[self.monitor])
         return ("mss", shot)
 
+    def fotograma(self):
+        """Para animaciones: un fotograma sin reintentos, o None si la pantalla no cambió."""
+        if self._dxcam is not None:
+            frame = self._dxcam.grab()
+            return None if frame is None else ("bgra", frame)
+        return ("mss", self._mss.grab(self._mss.monitors[self.monitor]))
+
     @staticmethod
     def a_imagen(datos):
+        import numpy as np
         from PIL import Image
         tipo, obj = datos
         if tipo == "bgra":
             alto, ancho = obj.shape[:2]
-            return Image.frombytes("RGB", (ancho, alto), obj.tobytes(), "raw", "BGRX")
+            # frombuffer evita copiar los 8 MB del fotograma antes de convertir.
+            return Image.frombuffer("RGB", (ancho, alto), np.ascontiguousarray(obj), "raw", "BGRX", 0, 1)
         return Image.frombytes("RGB", obj.size, obj.bgra, "raw", "BGRX")
 
 
@@ -304,18 +315,33 @@ class Guardador(threading.Thread):
         img = Capturador.a_imagen(datos)
         fmt = self.config["formato"].lower()
         ext = "jpg" if fmt in ("jpg", "jpeg") else "png"
-        sello = momento.strftime("%Y-%m-%d_%H-%M-%S_") + f"{momento.microsecond // 1000:03d}"
-        seguro = "".join(c if c.isalnum() or c in "-_" else "_" for c in nombre_atajo)
-        # Se lee cada vez por si la carpeta se cambió desde la app.
+        sufijo = limpiar_sufijo(self.config.get("sufijo"))
+        # Se lee cada vez por si la carpeta o el sufijo se cambiaron desde la app.
         self.carpeta = Path(self.config["carpeta"]).expanduser()
         self.carpeta.mkdir(parents=True, exist_ok=True)
-        ruta = self.carpeta / f"silksong_{sello}_{seguro}.{ext}"
+        ruta = self.carpeta / f"{sufijo}-{siguiente_numero(self.carpeta, sufijo):03d}.{ext}"
         if ext == "jpg":
             img.save(ruta, "JPEG", quality=int(self.config["calidad_jpg"]))
         else:
             # compress_level bajo = mucho más rápido, archivo algo más grande.
             img.save(ruta, "PNG", compress_level=1)
         return ruta, img
+
+
+CARACTERES_PROHIBIDOS = re.compile(r'[\\/:*?"<>|]')
+
+
+def limpiar_sufijo(sufijo):
+    """Quita caracteres que Windows no acepta en nombres de archivo."""
+    limpio = CARACTERES_PROHIBIDOS.sub("", str(sufijo or "")).strip().strip(".")
+    return limpio or "captura"
+
+
+def siguiente_numero(carpeta, sufijo):
+    """Siguiente número libre para <sufijo>-NNN.png/jpg en la carpeta."""
+    patron = re.compile(re.escape(sufijo) + r"-(\d+)\.(png|jpe?g)$", re.IGNORECASE)
+    numeros = [int(m.group(1)) for p in Path(carpeta).iterdir() if (m := patron.match(p.name))]
+    return max(numeros, default=0) + 1
 
 
 def sonar():
