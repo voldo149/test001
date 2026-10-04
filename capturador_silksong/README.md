@@ -46,9 +46,21 @@ Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 - Asigna el **Atajo de animación** en la columna derecha. Presiónalo una vez para empezar (suena un tono que sube) y otra para terminar (suena un tono que baja). Mientras graba, arriba aparece **● REC** con el tiempo y los cuadros.
 - Si la pantalla no cambió en un cuadro, se repite el anterior, así la secuencia siempre dura lo mismo que en la realidad.
 - Los cuadros esperan en memoria y se guardan con hilos de prioridad mínima mientras grabas y después de parar, para no quitarle fluidez al juego. Si se llega al límite de memoria (35 % de la RAM, máximo 6 GB), la grabación se detiene sola.
-- Ocupan bastante espacio: a 1080p en PNG son unos 150–250 MB por segundo. En JPG mucho menos.
+- En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
+
+## Formato: PNG, JPG o WEBP
+
+Medido con una captura real del juego a 1080p:
+
+| Formato | Tamaño | Calidad |
+|---|---|---|
+| PNG | 1.74 MB | idéntica al original |
+| JPG (calidad 95) | 0.45 MB | casi idéntica |
+| **WEBP (calidad 90)** | **0.20 MB** | casi idéntica, igual que el JPG 95 |
+
+**Para subir a la guía, WEBP es lo recomendado:** pesa un 10 % de un PNG y la mitad que un JPG con la misma calidad visible, y todos los navegadores actuales lo muestran. PNG solo vale la pena si necesitas el original exacto, por ejemplo para editarlo. Las animaciones también se guardan en el formato elegido.
 
 ## Resolución y prioridad
 

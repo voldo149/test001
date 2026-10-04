@@ -9,7 +9,7 @@ Cómo evita frenar el juego:
   paralelo de verdad), durante la grabación y después de parar.
 - Si la RAM usada llega al límite, la grabación se detiene sola.
 
-Archivos: <carpeta>/anim01/<sufijo>-anim01-001.png, ...
+Archivos: <carpeta>/anim01/<sufijo>-anim01-001.png (o .jpg / .webp), ...
 """
 
 import ctypes
@@ -95,9 +95,7 @@ class GrabadorAnimacion:
     def __init__(self, config, avisar):
         self.base = Path(config["carpeta"]).expanduser()
         self.sufijo = cap.limpiar_sufijo(config.get("sufijo"))
-        fmt = config.get("formato", "png").lower()
-        self.ext = "jpg" if fmt in ("jpg", "jpeg") else "png"
-        self.calidad_jpg = int(config.get("calidad_jpg", 95))
+        self.ext = cap.extension(config.get("formato"))  # fijo para toda la animación
         self.fps = int(config.get("anim_fps", 60))
         limite_mb = config.get("anim_limite_mb")
         self.limite = int(limite_mb) * MB if limite_mb else limite_por_defecto()
@@ -161,10 +159,7 @@ class GrabadorAnimacion:
     def _guardar_cuadro(self, indice, datos):
         cap.prioridad_hilo(self._modo())
         img = cap.ajustar_resolucion(cap.Capturador.a_imagen(datos), self.resolucion)
-        if self.ext == "jpg":
-            img.save(self._ruta(indice), "JPEG", quality=self.calidad_jpg)
-        else:
-            img.save(self._ruta(indice), "PNG", compress_level=1)
+        cap.guardar_imagen(img, self._ruta(indice), self.config, rapido=True)
 
     def _trabajar(self):
         winmm = ctypes.windll.winmm if os.name == "nt" else None

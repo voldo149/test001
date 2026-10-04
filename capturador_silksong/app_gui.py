@@ -35,7 +35,7 @@ LATIDO_CADA_MS = 30_000
 SALTO_SUSPENSION_SEG = 600
 MAX_MINIATURAS = 24
 TAM_MINIATURA = (132, 74)
-EXTENSIONES_FOTO = {".png", ".jpg", ".jpeg"}
+EXTENSIONES_FOTO = {".png", ".jpg", ".jpeg", ".webp"}
 
 # --------------------------------------------------------------------------
 # Paleta (tomada del editor de guías)
@@ -746,10 +746,10 @@ class App:
         cab, _ = titulo_seccion(der, "Formato", "Fotos")
         cab.pack(pady=(0, 10), **pad)
         self.seg_formato = ctk.CTkSegmentedButton(
-            der, values=["PNG", "JPG"], command=self._cambiar_formato, height=36, corner_radius=8,
+            der, values=["PNG", "JPG", "WEBP"], command=self._cambiar_formato, height=36, corner_radius=8,
             font=fuente(13), fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
             unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_formato.set("JPG" if self.config["formato"].lower() in ("jpg", "jpeg") else "PNG")
+        self.seg_formato.set(cap.extension(self.config["formato"]).upper())
         self.seg_formato.pack(**pad)
 
         ctk.CTkLabel(der, text="Resolución", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
@@ -839,6 +839,7 @@ class App:
     def _cambiar_formato(self, valor):
         self.config["formato"] = valor.lower()
         self._guardar()
+        self._sufijo_cambiado()  # actualizar el ejemplo de nombre
 
     def _mostrar_carpeta(self):
         carpeta = self.config["carpeta"]
@@ -1298,7 +1299,8 @@ class App:
 
     def _sufijo_cambiado(self):
         sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
-        self.lbl_ejemplo.configure(text=f"{sufijo}-001.png  ·  {sufijo}-anim01-001.png")
+        ext = cap.extension(self.config.get("formato"))
+        self.lbl_ejemplo.configure(text=f"{sufijo}-001.{ext}  ·  {sufijo}-anim01-001.{ext}")
         if self.config.get("sufijo") != sufijo:
             self.config["sufijo"] = sufijo
             # Guardar el archivo sin escribirlo con cada tecla.

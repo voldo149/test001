@@ -37,10 +37,11 @@ ARCHIVO_CONFIG = CARPETA_SCRIPT / "config.json"
 CONFIG_POR_DEFECTO = {
     "carpeta": str(Path.home() / "Pictures" / "Silksong"),
     "sufijo": "captura",       # fotos: captura-001.png; animaciones: anim01/captura-anim01-001.png
-    "formato": "png",          # "png" o "jpg"
+    "formato": "png",          # "png", "jpg" o "webp"
     "resolucion": "nativa",    # "nativa" o "720p" (se reduce después de capturar)
     "prioridad": "juego",      # "juego" (no frenar el juego) o "grabacion" (guardar rápido)
     "calidad_jpg": 95,
+    "calidad_webp": 90,        # 90 se ve igual que el original y pesa ~10 % de un PNG
     "motor": "auto",           # "auto", "dxcam" o "mss"
     "monitor": 1,              # 1 = monitor principal
     "sonido": False,          # aviso de Windows al tomar cada foto
@@ -316,18 +317,13 @@ class Guardador(threading.Thread):
     def _guardar(self, nombre_atajo, momento, datos):
         prioridad_hilo(self.config.get("prioridad", "juego"))
         img = ajustar_resolucion(Capturador.a_imagen(datos), self.config.get("resolucion"))
-        fmt = self.config["formato"].lower()
-        ext = "jpg" if fmt in ("jpg", "jpeg") else "png"
+        ext = extension(self.config["formato"])
         sufijo = limpiar_sufijo(self.config.get("sufijo"))
         # Se lee cada vez por si la carpeta o el sufijo se cambiaron desde la app.
         self.carpeta = Path(self.config["carpeta"]).expanduser()
         self.carpeta.mkdir(parents=True, exist_ok=True)
         ruta = self.carpeta / f"{sufijo}-{siguiente_numero(self.carpeta, sufijo):03d}.{ext}"
-        if ext == "jpg":
-            img.save(ruta, "JPEG", quality=int(self.config["calidad_jpg"]))
-        else:
-            # compress_level bajo = mucho más rápido, archivo algo más grande.
-            img.save(ruta, "PNG", compress_level=1)
+        guardar_imagen(img, ruta, self.config)
         return ruta, img
 
 
@@ -340,9 +336,28 @@ def limpiar_sufijo(sufijo):
     return limpio or "captura"
 
 
+def extension(formato):
+    """'png', 'jpg' o 'webp' según el formato elegido."""
+    formato = str(formato or "png").lower()
+    return {"jpeg": "jpg", "jpg": "jpg", "webp": "webp"}.get(formato, "png")
+
+
+def guardar_imagen(img, ruta, config, rapido=False):
+    """Guarda según la extensión de la ruta. rapido=True para cuadros de animación."""
+    ext = ruta.suffix.lower().lstrip(".")
+    if ext == "jpg":
+        img.save(ruta, "JPEG", quality=int(config.get("calidad_jpg", 95)))
+    elif ext == "webp":
+        # method 2 pesa casi lo mismo que 4 y tarda la mitad.
+        img.save(ruta, "WEBP", quality=int(config.get("calidad_webp", 90)), method=2 if rapido else 4)
+    else:
+        # compress_level bajo = mucho más rápido, archivo algo más grande.
+        img.save(ruta, "PNG", compress_level=1)
+
+
 def siguiente_numero(carpeta, sufijo):
     """Siguiente número libre para <sufijo>-NNN.png/jpg en la carpeta."""
-    patron = re.compile(re.escape(sufijo) + r"-(\d+)\.(png|jpe?g)$", re.IGNORECASE)
+    patron = re.compile(re.escape(sufijo) + r"-(\d+)\.(png|jpe?g|webp)$", re.IGNORECASE)
     numeros = [int(m.group(1)) for p in Path(carpeta).iterdir() if (m := patron.match(p.name))]
     return max(numeros, default=0) + 1
 
