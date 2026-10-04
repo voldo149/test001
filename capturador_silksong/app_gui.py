@@ -544,6 +544,7 @@ class App:
         self._grabando_desde = None
         self._migrar_botones_propios()
         self._ultimo_tick = datetime.now()
+        cap.aplicar_prioridad(self.config["prioridad"])
         self.registro = RegistroTiempos(CARPETA)
         self.eventos = queue.Queue()
         self.escucha = Escucha(self.config, self.eventos)
@@ -621,6 +622,13 @@ class App:
 
         derecha = ctk.CTkFrame(enc, fg_color="transparent")
         derecha.grid(row=0, column=4, padx=20)
+        ctk.CTkLabel(derecha, text="Prioridad", font=fuente(12), text_color=TENUE).pack(side="left", padx=(0, 8))
+        self.seg_prioridad = ctk.CTkSegmentedButton(
+            derecha, values=["Juego", "Grabación"], command=self._cambiar_prioridad, height=30, corner_radius=8,
+            font=fuente(12, "bold"), fg_color=TARJETA, selected_color=VERDE_FONDO, selected_hover_color=VERDE_HOVER,
+            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
+        self.seg_prioridad.set("Grabación" if self.config["prioridad"] == "grabacion" else "Juego")
+        self.seg_prioridad.pack(side="left", padx=(0, 16))
         self.pastilla_mando = ctk.CTkLabel(derecha, text="●  Buscando mando…", font=fuente(12, "bold"),
                                            text_color=TENUE, fg_color=TARJETA, corner_radius=14,
                                            height=30, padx=12)
@@ -744,6 +752,14 @@ class App:
         self.seg_formato.set("JPG" if self.config["formato"].lower() in ("jpg", "jpeg") else "PNG")
         self.seg_formato.pack(**pad)
 
+        ctk.CTkLabel(der, text="Resolución", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
+        self.seg_resolucion = ctk.CTkSegmentedButton(
+            der, values=["Nativa", "720p"], command=self._cambiar_resolucion, height=36, corner_radius=8,
+            font=fuente(13), fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
+            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
+        self.seg_resolucion.set("720p" if self.config["resolucion"] == "720p" else "Nativa")
+        self.seg_resolucion.pack(**pad)
+
         ctk.CTkLabel(der, text="Carpeta", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
         fila = ctk.CTkFrame(der, fg_color="transparent")
         fila.pack(**pad)
@@ -804,6 +820,21 @@ class App:
         self.config["fotos_solo_con_timer"] = self.var_solo_timer.get()
         self.config["sonido_anim"] = self.var_sonido_anim.get()
         self._guardar()
+
+    def _cambiar_resolucion(self, valor):
+        self.config["resolucion"] = "720p" if valor == "720p" else "nativa"
+        self._guardar()
+        self.log(f"Resolución: {valor} (las animaciones en curso conservan la suya)")
+
+    def _cambiar_prioridad(self, valor):
+        modo = "grabacion" if valor == "Grabación" else "juego"
+        self.config["prioridad"] = modo
+        cap.aplicar_prioridad(modo)
+        self._guardar()
+        if modo == "juego":
+            self.log("Prioridad: juego. Se guarda con calma para no quitarle fluidez.")
+        else:
+            self.log("Prioridad: grabación. Se guarda lo más rápido posible; el juego puede ir algo más lento.")
 
     def _cambiar_formato(self, valor):
         self.config["formato"] = valor.lower()

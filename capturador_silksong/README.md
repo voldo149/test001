@@ -50,6 +50,13 @@ Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
 
+## Resolución y prioridad
+
+- **Resolución** (columna derecha, en Formato): **Nativa** guarda tal cual la pantalla. **720p** captura igual y después la reduce a 720 px de alto, manteniendo la proporción. Reducir no cuesta más: comprimir una imagen de 720p es tanto más rápido que el total baja cerca de un 30 %. Cada animación conserva la resolución con la que empezó.
+- **Prioridad** (arriba, junto al estado del mando). Se puede cambiar en cualquier momento, incluso mientras se guarda una animación:
+  - **Juego:** la app corre con prioridad baja y guarda con pocos hilos de prioridad mínima. El juego va fluido y las animaciones tardan más en guardarse.
+  - **Grabación:** prioridad normal, el hilo de captura con prioridad alta y todos los núcleos menos uno guardando. Se guarda lo más rápido posible y la captura a 60 fps es más estable. El juego puede ir algo más lento.
+
 ## Si se cierra o se apaga la PC
 
 - **Cierras la ventana:** los temporizadores se detienen y se guardan.
@@ -60,7 +67,7 @@ Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 
 - La ventana nunca se pone al frente ni le quita el foco al juego. Ábrela antes y luego haz clic en el juego.
 - Pon el juego en **pantalla completa sin bordes**.
-- La captura usa DXGI (dxcam) y se guarda en un hilo aparte. El proceso corre con prioridad baja.
+- La captura usa DXGI (dxcam) y se guarda en un hilo aparte. En modo de prioridad **Juego** el proceso corre con prioridad baja.
 
 ## Archivos (en esta carpeta, no se suben a git)
 

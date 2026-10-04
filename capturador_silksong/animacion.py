@@ -66,10 +66,24 @@ def nueva_carpeta(base):
             numero += 1
 
 
-def _hilo_prioridad_minima():
-    if os.name == "nt":
-        k32 = ctypes.windll.kernel32
-        k32.SetThreadPriority(k32.GetCurrentThread(), -2)  # THREAD_PRIORITY_LOWEST
+class Limitador:
+    """Cuántos cuadros se codifican a la vez; el límite se relee siempre (cambia con el modo)."""
+
+    def __init__(self, limite):
+        self._limite = limite
+        self._activos = 0
+        self._cond = threading.Condition()
+
+    def __enter__(self):
+        with self._cond:
+            while self._activos >= self._limite():
+                self._cond.wait(timeout=0.2)
+            self._activos += 1
+
+    def __exit__(self, *exc):
+        with self._cond:
+            self._activos -= 1
+            self._cond.notify_all()
 
 
 def _tam(datos):
@@ -90,6 +104,8 @@ class GrabadorAnimacion:
         self.motor = config.get("motor", "auto")
         self.monitor = config.get("monitor", 1)
         self.avisar = avisar  # función(*evento)
+        self.config = config  # se lee "prioridad" en vivo
+        self.resolucion = config.get("resolucion", "nativa")  # fija para toda la animación
 
         self.carpeta = None
         self.numero = None
@@ -100,8 +116,10 @@ class GrabadorAnimacion:
         self._hechos = 0
         self._unicos = 0
         self._hilo = None
-        hilos = max(2, min(4, (os.cpu_count() or 4) // 3))
-        self._pool = ThreadPoolExecutor(max_workers=hilos, initializer=_hilo_prioridad_minima)
+        cpus = os.cpu_count() or 4
+        self._hilos = {"juego": max(2, min(4, cpus // 3)), "grabacion": max(2, min(8, cpus - 1))}
+        self._pool = ThreadPoolExecutor(max_workers=self._hilos["grabacion"])
+        self._limitador = Limitador(lambda: self._hilos.get(self._modo(), self._hilos["juego"]))
 
     # ------------------------------------------------------------------ control
 
@@ -121,6 +139,9 @@ class GrabadorAnimacion:
         """True mientras graba o todavía está guardando fotogramas."""
         return self._hilo is not None and self._hilo.is_alive()
 
+    def _modo(self):
+        return self.config.get("prioridad", "juego")
+
     # ------------------------------------------------------------------ nombres
 
     def _ruta(self, indice, ancho=3):
@@ -130,15 +151,20 @@ class GrabadorAnimacion:
 
     def _codificar(self, indice, datos, tam):
         try:
-            img = cap.Capturador.a_imagen(datos)
-            if self.ext == "jpg":
-                img.save(self._ruta(indice), "JPEG", quality=self.calidad_jpg)
-            else:
-                img.save(self._ruta(indice), "PNG", compress_level=1)
+            with self._limitador:
+                self._guardar_cuadro(indice, datos)
         finally:
             with self._lock:
                 self._bytes -= tam
                 self._hechos += 1
+
+    def _guardar_cuadro(self, indice, datos):
+        cap.prioridad_hilo(self._modo())
+        img = cap.ajustar_resolucion(cap.Capturador.a_imagen(datos), self.resolucion)
+        if self.ext == "jpg":
+            img.save(self._ruta(indice), "JPEG", quality=self.calidad_jpg)
+        else:
+            img.save(self._ruta(indice), "PNG", compress_level=1)
 
     def _trabajar(self):
         winmm = ctypes.windll.winmm if os.name == "nt" else None
@@ -196,6 +222,7 @@ class GrabadorAnimacion:
         except Exception as e:
             return [], [], None, f"error: {e}"
 
+        cap.prioridad_hilo(self._modo(), captura=True)
         intervalo = 1.0 / self.fps
         mapa = []      # mapa[i] = índice del fotograma original (i si es nuevo)
         futuros = []
@@ -240,6 +267,7 @@ class GrabadorAnimacion:
 
             if len(mapa) % AVISAR_CADA == 0:
                 self.avisar("anim_progreso", len(mapa), time.perf_counter() - t0)
+                cap.prioridad_hilo(self._modo(), captura=True)  # sigue el modo si se cambia
             if self._bytes > self.limite:
                 motivo = "límite de memoria"
                 break

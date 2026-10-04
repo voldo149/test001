@@ -38,6 +38,8 @@ CONFIG_POR_DEFECTO = {
     "carpeta": str(Path.home() / "Pictures" / "Silksong"),
     "sufijo": "captura",       # fotos: captura-001.png; animaciones: anim01/captura-anim01-001.png
     "formato": "png",          # "png" o "jpg"
+    "resolucion": "nativa",    # "nativa" o "720p" (se reduce después de capturar)
+    "prioridad": "juego",      # "juego" (no frenar el juego) o "grabacion" (guardar rápido)
     "calidad_jpg": 95,
     "motor": "auto",           # "auto", "dxcam" o "mss"
     "monitor": 1,              # 1 = monitor principal
@@ -312,7 +314,8 @@ class Guardador(threading.Thread):
                 self.cola.task_done()
 
     def _guardar(self, nombre_atajo, momento, datos):
-        img = Capturador.a_imagen(datos)
+        prioridad_hilo(self.config.get("prioridad", "juego"))
+        img = ajustar_resolucion(Capturador.a_imagen(datos), self.config.get("resolucion"))
         fmt = self.config["formato"].lower()
         ext = "jpg" if fmt in ("jpg", "jpeg") else "png"
         sufijo = limpiar_sufijo(self.config.get("sufijo"))
@@ -350,12 +353,38 @@ def sonar():
         winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
 
 
-def bajar_prioridad():
-    """Prioridad 'por debajo de lo normal' para no quitarle CPU al juego."""
+# Prioridades de Windows según el modo de rendimiento.
+_PRIORIDAD_PROCESO = {"juego": 0x00004000, "grabacion": 0x00000020}  # BELOW_NORMAL / NORMAL
+_PRIORIDAD_TRABAJO = {"juego": -2, "grabacion": 0}   # hilos que guardan: LOWEST / NORMAL
+_PRIORIDAD_CAPTURA = {"juego": 0, "grabacion": 2}    # hilo que captura: NORMAL / HIGHEST
+
+
+def aplicar_prioridad(modo):
+    """Prioridad de todo el proceso: por debajo de lo normal en modo juego."""
     if os.name == "nt":
-        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
         k32 = ctypes.windll.kernel32
-        k32.SetPriorityClass(k32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
+        k32.SetPriorityClass(k32.GetCurrentProcess(), _PRIORIDAD_PROCESO.get(modo, 0x00004000))
+
+
+def prioridad_hilo(modo, captura=False):
+    """Prioridad del hilo actual (se llama en cada tarea, así el cambio de modo aplica al momento)."""
+    if os.name == "nt":
+        tabla = _PRIORIDAD_CAPTURA if captura else _PRIORIDAD_TRABAJO
+        k32 = ctypes.windll.kernel32
+        k32.SetThreadPriority(k32.GetCurrentThread(), tabla.get(modo, 0))
+
+
+def bajar_prioridad():
+    aplicar_prioridad("juego")
+
+
+def ajustar_resolucion(img, resolucion):
+    """Reduce a 720 px de alto si se pidió 720p (mantiene la proporción de la pantalla)."""
+    if resolucion != "720p" or img.height <= 720:
+        return img
+    from PIL import Image
+    ancho = round(img.width * 720 / img.height)
+    return img.resize((ancho, 720), Image.LANCZOS)
 
 
 # --------------------------------------------------------------------------
