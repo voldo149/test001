@@ -1,37 +1,51 @@
 """
-Grabación de animaciones: secuencias de imágenes a 60 fps.
+Grabación de animaciones a 60 fps.
 
-Cómo evita frenar el juego:
-- Un hilo captura a ritmo fijo (60 fps). Si la pantalla no cambió en ese
-  cuadro, repite el fotograma anterior sin copiarlo.
-- Los fotogramas esperan en RAM y unos hilos de prioridad mínima los van
-  codificando (Pillow suelta el GIL al comprimir, así que trabajan en
-  paralelo de verdad), durante la grabación y después de parar.
+Para que se vea fluida:
+- Con dxcam se toma CADA cuadro que el juego muestra, en el momento en que
+  aparece (se revisa cada ~1 ms), en vez de mirar la pantalla a horas fijas.
+  Cada cuadro nuevo se guarda una vez; si el juego tarda más (escena a 30 fps,
+  pantalla quieta), el cuadro anterior se repite para que la animación dure
+  lo mismo que en la realidad. Si el monitor va a más de 60 Hz, se queda con
+  un cuadro por cada 1/60 s.
+- La compresión ocurre en PROCESOS aparte (trabajador.py). Pillow mantiene el
+  GIL al comprimir WebP/JPG y, en el mismo proceso, eso congelaba la captura y
+  hacía que se perdieran cuadros (la animación se veía cortada).
+- El hilo de captura tiene prioridad alta: hace muy poco trabajo por cuadro.
 - Si la RAM usada llega al límite, la grabación se detiene sola.
 
-Archivos: <carpeta>/anim01/<sufijo>-anim01-001.png (o .jpg / .webp), ...
-Animado: <carpeta>/<sufijo>-anim01.avif (un solo archivo que se reproduce
-como un GIF, pero muchísimo más ligero: AV1 aprovecha lo que se repite
-entre cuadros).
+Fotos y animaciones comparten la numeración del sufijo:
+  doric-001.webp, doric-002.webp, doric-anim_003/doric-anim_003-001.webp …,
+  doric-004.webp
+AVIF animado: doric-anim_003.avif (un solo archivo que se reproduce como un
+GIF pero muchísimo más ligero: AV1 aprovecha lo que se repite entre cuadros).
 """
 
 import ctypes
 import os
+import queue
 import re
 import shutil
+import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import wait
 from pathlib import Path
 
 from PIL import Image, features
 
 import capturador as cap
+import trabajador
 
 MB = 1024 * 1024
-PATRON_CARPETA = re.compile(r"^anim(\d+)$", re.IGNORECASE)
-PATRON_AVIF = re.compile(r"-anim(\d+)\.avif$", re.IGNORECASE)
-AVISAR_CADA = 15  # fotogramas entre avisos de progreso
+# Carpetas de animación: las nuevas (doric-anim_003) y las de versiones anteriores (anim01).
+PATRON_CARPETA = re.compile(r"^(?:anim\d+|.+-anim_\d+)$", re.IGNORECASE)
+AVISAR_CADA_SEG = 0.25
+TOLERANCIA = 0.003  # s: variación normal entre cuadros del juego que se acepta como "a tiempo"
+
+_cpus = os.cpu_count() or 4
+# Cuántos cuadros se comprimen a la vez según la prioridad elegida.
+HILOS = {"juego": max(2, min(4, _cpus // 3)), "grabacion": max(2, min(8, _cpus - 1))}
 
 
 def memoria_total():
@@ -58,41 +72,89 @@ def limite_por_defecto():
     return int(min(6 * 1024 * MB, memoria_total() * 0.35))
 
 
-def nueva_carpeta(base):
-    """Crea la siguiente carpeta animNN libre y devuelve (ruta, numero)."""
+def nueva_carpeta(base, sufijo):
+    """Crea <sufijo>-anim_NNN con el siguiente número compartido con las fotos."""
     base.mkdir(parents=True, exist_ok=True)
-    # Cuentan las carpetas animNN y también los .avif sueltos (su carpeta ya se borró).
-    usados = [int(m.group(1)) for p in base.iterdir()
-              if (p.is_dir() and (m := PATRON_CARPETA.match(p.name)))
-              or (p.is_file() and (m := PATRON_AVIF.search(p.name)))]
-    numero = max(usados, default=0) + 1
     while True:
-        ruta = base / f"anim{numero:02d}"
+        numero = cap.reservar_numero(base, sufijo)
+        ruta = base / f"{sufijo}-anim_{numero:03d}"
         try:
             ruta.mkdir()
             return ruta, numero
         except FileExistsError:
-            numero += 1
+            continue
 
 
 class Limitador:
-    """Cuántos cuadros se codifican a la vez; el límite se relee siempre (cambia con el modo)."""
+    """Cuántas tareas a la vez; el límite se relee siempre (cambia con el modo)."""
 
     def __init__(self, limite):
         self._limite = limite
         self._activos = 0
         self._cond = threading.Condition()
 
-    def __enter__(self):
+    def tomar(self):
         with self._cond:
             while self._activos >= self._limite():
                 self._cond.wait(timeout=0.2)
             self._activos += 1
 
-    def __exit__(self, *exc):
+    def soltar(self):
         with self._cond:
             self._activos -= 1
             self._cond.notify_all()
+
+
+class BancoMemoria:
+    """Bloques de memoria compartida que se reutilizan entre cuadros.
+
+    Cada cuadro capturado se pasa aquí enseguida para que el sistema recicle la
+    memoria normal del siguiente cuadro (pedir 8 MB nuevos por cuadro mientras
+    la cola crece llegó a tardar 20 ms y retrasaba la captura).
+    """
+
+    def __init__(self):
+        self._bloques = {}  # nombre -> (shm, vista ctypes); las vistas solo viven aquí
+        self._libres = []
+        self._lock = threading.Lock()
+
+    def obtener(self, tam):
+        """Devuelve (nombre, dirección) de un bloque libre de al menos `tam` bytes."""
+        from multiprocessing import shared_memory
+        with self._lock:
+            for i, nombre in enumerate(self._libres):
+                shm, vista = self._bloques[nombre]
+                if shm.size >= tam:
+                    del self._libres[i]
+                    return nombre, ctypes.addressof(vista)
+        shm = shared_memory.SharedMemory(create=True, size=tam)
+        vista = (ctypes.c_char * shm.size).from_buffer(shm.buf)
+        with self._lock:
+            self._bloques[shm.name] = (shm, vista)
+        return shm.name, ctypes.addressof(vista)
+
+    def devolver(self, nombre):
+        with self._lock:
+            self._libres.append(nombre)
+
+    def cerrar(self):
+        with self._lock:
+            bloques = list(self._bloques.values())
+            self._bloques.clear()
+            self._libres.clear()
+        shms = [shm for shm, _ in bloques]
+        del bloques  # suelta las vistas: si no, la memoria no se puede cerrar
+        for shm in shms:
+            cap.liberar_memoria(shm)
+
+
+def _como_array(datos):
+    import numpy as np
+    tipo, obj = datos
+    if tipo == "bgra":
+        return obj
+    ancho, alto = obj.size
+    return np.frombuffer(obj.bgra, dtype=np.uint8).reshape(alto, ancho, 4)
 
 
 class CuadroDiferido(Image.Image):
@@ -145,25 +207,21 @@ def crear_avif(rutas, destino, fps, calidad=80, hilos=None):
     temporal.replace(destino)
 
 
-def _tam(datos):
-    tipo, obj = datos
-    return obj.nbytes if tipo == "bgra" else len(obj.raw)
-
-
 class GrabadorAnimacion:
-    def __init__(self, config, avisar):
+    def __init__(self, config, avisar, pool):
         self.base = Path(config["carpeta"]).expanduser()
         self.sufijo = cap.limpiar_sufijo(config.get("sufijo"))
-        self.ext = cap.extension(config.get("formato"))  # fijo para toda la animación
+        self.ext = cap.extension(config.get("formato"))       # fijo para toda la animación
+        self.resolucion = config.get("resolucion", "nativa")  # fija para toda la animación
+        self.salida = config.get("anim_guardar", "ambos")     # "cuadros", "avif" o "ambos"
         self.fps = int(config.get("anim_fps", 60))
         limite_mb = config.get("anim_limite_mb")
         self.limite = int(limite_mb) * MB if limite_mb else limite_por_defecto()
         self.motor = config.get("motor", "auto")
         self.monitor = config.get("monitor", 1)
-        self.avisar = avisar  # función(*evento)
         self.config = config  # se lee "prioridad" en vivo
-        self.resolucion = config.get("resolucion", "nativa")  # fija para toda la animación
-        self.salida = config.get("anim_salida", "avif")        # "cuadros", "avif" o "ambos"
+        self.avisar = avisar  # función(*evento)
+        self._pool = pool     # procesos que comprimen
 
         self.carpeta = None
         self.numero = None
@@ -174,15 +232,17 @@ class GrabadorAnimacion:
         self._hechos = 0
         self._unicos = 0
         self._hilo = None
-        cpus = os.cpu_count() or 4
-        self._hilos = {"juego": max(2, min(4, cpus // 3)), "grabacion": max(2, min(8, cpus - 1))}
-        self._pool = ThreadPoolExecutor(max_workers=self._hilos["grabacion"])
-        self._limitador = Limitador(lambda: self._hilos.get(self._modo(), self._hilos["juego"]))
+        self._entrada = queue.Queue()  # cuadros recién capturados (los toma _copiar)
+        self._cola = queue.Queue()     # cuadros ya en memoria compartida esperando proceso
+        self._banco = BancoMemoria()
+        self._futuros = []
+        self._errores_envio = []
+        self._limitador = Limitador(lambda: HILOS.get(self._modo(), HILOS["juego"]))
 
     # ------------------------------------------------------------------ control
 
     def iniciar(self):
-        self.carpeta, self.numero = nueva_carpeta(self.base)
+        self.carpeta, self.numero = nueva_carpeta(self.base, self.sufijo)
         self._hilo = threading.Thread(target=self._trabajar, daemon=True)
         self._hilo.start()
 
@@ -194,7 +254,7 @@ class GrabadorAnimacion:
         return self._hilo is not None and self._hilo.is_alive() and not self._parar.is_set()
 
     def ocupado(self):
-        """True mientras graba o todavía está guardando fotogramas."""
+        """True mientras graba o todavía está guardando cuadros."""
         return self._hilo is not None and self._hilo.is_alive()
 
     def _modo(self):
@@ -202,34 +262,79 @@ class GrabadorAnimacion:
 
     # ------------------------------------------------------------------ nombres
 
+    def _nombre(self):
+        return f"{self.sufijo}-anim_{self.numero:03d}"
+
     def _ruta(self, indice, ancho=3):
-        return self.carpeta / f"{self.sufijo}-anim{self.numero:02d}-{indice + 1:0{ancho}d}.{self.ext}"
+        return self.carpeta / f"{self._nombre()}-{indice + 1:0{ancho}d}.{self.ext}"
+
+    # ------------------------------------------------------------------ envío a los procesos
+
+    def _despachar(self):
+        """Hilo: manda cada cuadro a un proceso, respetando cuántos a la vez permite el modo."""
+        opciones = dict(cap.opciones_imagen(self.config), resolucion=self.resolucion, rapido=True)
+        while True:
+            item = self._cola.get()
+            if item is None:
+                return
+            indice, nombre, forma, tam = item
+            self._limitador.tomar()
+            try:
+                futuro = self._pool.submit(trabajador.guardar, nombre, forma, str(self._ruta(indice)),
+                                           opciones, self._modo())
+            except Exception as e:  # el pool se cerró
+                self._errores_envio.append(e)
+                self._terminado(None, nombre, tam)
+                continue
+            futuro.add_done_callback(lambda f, nombre=nombre, tam=tam: self._terminado(f, nombre, tam))
+            self._futuros.append(futuro)
+
+    def _copiar(self):
+        """Hilo: pasa cada cuadro a memoria compartida en cuanto llega.
+
+        memmove de ctypes suelta el GIL mientras copia, así la captura no espera.
+        """
+        import numpy as np
+        while True:
+            item = self._entrada.get()
+            if item is None:
+                self._cola.put(None)
+                return
+            indice, arr = item
+            arr = np.ascontiguousarray(arr)
+            nombre, direccion = self._banco.obtener(arr.nbytes)
+            ctypes.memmove(direccion, arr.ctypes.data, arr.nbytes)
+            self._cola.put((indice, nombre, arr.shape, arr.nbytes))
+            del arr, item
+
+    def _terminado(self, futuro, nombre, tam):
+        self._banco.devolver(nombre)
+        self._limitador.soltar()
+        with self._lock:
+            self._bytes -= tam
+            self._hechos += 1
 
     # ------------------------------------------------------------------ trabajo
-
-    def _codificar(self, indice, datos, tam):
-        try:
-            with self._limitador:
-                self._guardar_cuadro(indice, datos)
-        finally:
-            with self._lock:
-                self._bytes -= tam
-                self._hechos += 1
-
-    def _guardar_cuadro(self, indice, datos):
-        cap.prioridad_hilo(self._modo())
-        img = cap.ajustar_resolucion(cap.Capturador.a_imagen(datos), self.resolucion)
-        cap.guardar_imagen(img, self._ruta(indice), self.config, rapido=True)
 
     def _trabajar(self):
         winmm = ctypes.windll.winmm if os.name == "nt" else None
         if winmm:
             winmm.timeBeginPeriod(1)  # sleep preciso (1 ms) mientras graba
+        # Pasar el GIL entre hilos más seguido (por defecto cada 5 ms): la captura
+        # recupera su turno enseguida aunque otro hilo de la app esté trabajando.
+        intervalo_gil = sys.getswitchinterval()
+        sys.setswitchinterval(0.0005)
+        despachador = threading.Thread(target=self._despachar, daemon=True)
+        copiador = threading.Thread(target=self._copiar, daemon=True)
+        despachador.start()
+        copiador.start()
         try:
-            mapa, futuros, primero, motivo = self._capturar()
+            mapa, primero, motivo = self._capturar()
         finally:
             if winmm:
                 winmm.timeEndPeriod(1)
+            sys.setswitchinterval(intervalo_gil)
+            self._entrada.put(None)
 
         self.total = len(mapa)
         if self.total == 0:
@@ -245,114 +350,150 @@ class GrabadorAnimacion:
                 pass
         self.avisar("anim_fin", self.carpeta, miniatura, self.total, motivo)
 
-        # Esperar la codificación avisando el avance.
-        pendientes = set(futuros)
+        # Esperar a que los procesos terminen, avisando el avance.
+        copiador.join()
+        despachador.join()
+        pendientes = set(self._futuros)
         while pendientes:
             _, pendientes = wait(pendientes, timeout=0.5)
             self.avisar("anim_guardando", self.carpeta, self._hechos, self._unicos)
-        self._pool.shutdown(wait=True)
-        errores = [f.exception() for f in futuros if f.exception() is not None]
+        errores = self._errores_envio + [f.exception() for f in self._futuros if f.exception() is not None]
+        self._banco.cerrar()
 
-        # Fotogramas repetidos: copiar el archivo del original.
-        for i, origen in enumerate(mapa):
-            if origen != i:
-                shutil.copyfile(self._ruta(origen), self._ruta(i))
+        # Cuadros repetidos: copiar el archivo del original (en el AVIF casi no pesan).
+        if not errores:
+            for i, origen in enumerate(mapa):
+                if origen != i:
+                    shutil.copyfile(self._ruta(origen), self._ruta(i))
 
-        # Más de 999 fotogramas: renombrar con más dígitos para que ordenen bien.
-        ancho = len(str(self.total))
-        if ancho > 3:
+        # Más de 999 cuadros: renombrar con más dígitos para que ordenen bien.
+        ancho = max(3, len(str(self.total)))
+        if ancho > 3 and not errores:
             for i in range(self.total):
-                actual = self._ruta(i)
-                nuevo = self._ruta(i, ancho)
-                if actual != nuevo:
-                    actual.rename(nuevo)
+                self._ruta(i).rename(self._ruta(i, ancho))
 
         final = self.carpeta
         if self.salida != "cuadros" and self.total and not errores:
-            final, error_avif = self._hacer_avif(ancho if ancho > 3 else 3)
+            final, error_avif = self._hacer_avif(ancho)
             if error_avif:
                 errores.append(error_avif)
         self.avisar("anim_guardada", self.carpeta, final, self.total, self.total / self.fps,
                     str(errores[0]) if errores else None)
 
     def _hacer_avif(self, ancho):
-        """Crea el AVIF animado. Devuelve (ruta final, error o None)."""
+        """Crea el AVIF animado en un proceso aparte. Devuelve (ruta final, error o None)."""
         if not avif_disponible():
             return self.carpeta, "este Pillow no tiene AVIF (ejecuta instalar.bat); se dejaron los cuadros"
-        nombre = f"{self.sufijo}-anim{self.numero:02d}.avif"
         # Solo AVIF: queda junto a las fotos. Ambos: dentro de la carpeta de cuadros.
-        destino = (self.base if self.salida == "avif" else self.carpeta) / nombre
+        destino = (self.base if self.salida == "avif" else self.carpeta) / f"{self._nombre()}.avif"
         n = 2
         while destino.exists():  # nunca sobrescribir una animación anterior
-            destino = destino.with_name(f"{self.sufijo}-anim{self.numero:02d}-{n}.avif")
+            destino = destino.with_name(f"{self._nombre()}-{n}.avif")
             n += 1
-        rutas = [self._ruta(i, ancho) for i in range(self.total)]
+        rutas = [str(self._ruta(i, ancho)) for i in range(self.total)]
         self.avisar("anim_avif", self.carpeta)
         try:
-            cap.prioridad_hilo(self._modo())
-            crear_avif(rutas, destino, self.fps, hilos=self._hilos.get(self._modo()))
+            self._pool.submit(trabajador.crear_avif, rutas, str(destino), self.fps,
+                              HILOS.get(self._modo()), self._modo()).result()
         except Exception as e:
             return self.carpeta, f"no se pudo crear el AVIF ({e}); se dejaron los cuadros"
         if self.salida == "avif":
             shutil.rmtree(self.carpeta, ignore_errors=True)
         return destino, None
 
+    # ------------------------------------------------------------------ captura
+
     def _capturar(self):
-        """Bucle de captura a ritmo fijo. Devuelve (mapa, futuros, primer_fotograma, motivo)."""
+        """Devuelve (mapa, primer_cuadro, motivo). mapa[i] = índice del cuadro original."""
         try:
             capt = cap.Capturador(self.motor, self.monitor)  # propio de este hilo
         except Exception as e:
-            return [], [], None, f"error: {e}"
+            return [], None, f"error: {e}"
 
-        cap.prioridad_hilo(self._modo(), captura=True)
-        intervalo = 1.0 / self.fps
-        mapa = []      # mapa[i] = índice del fotograma original (i si es nuevo)
-        futuros = []
-        primero = None
-        ultimo_nuevo = None
-        motivo = "detenida"
-        t0 = time.perf_counter()
+        dt = 1.0 / self.fps
+        mapa = []
+        estado = {"ultimo": None, "primero": None}
 
         def emitir(datos):
-            nonlocal ultimo_nuevo, primero
             indice = len(mapa)
-            if datos is None:
-                mapa.append(ultimo_nuevo)
+            if datos is None:  # repetir el cuadro anterior (no se copia, solo se anota)
+                mapa.append(estado["ultimo"])
                 return
-            tam = _tam(datos)
+            arr = _como_array(datos)  # sin copiar: dxcam ya entrega un arreglo nuevo por cuadro
             with self._lock:
-                self._bytes += tam
+                self._bytes += arr.nbytes
                 self._unicos += 1
             mapa.append(indice)
-            ultimo_nuevo = indice
-            if primero is None:
-                primero = datos
-            futuros.append(self._pool.submit(self._codificar, indice, datos, tam))
+            estado["ultimo"] = indice
+            if estado["primero"] is None:
+                estado["primero"] = datos
+            self._entrada.put((indice, arr))
 
-        while not self._parar.is_set():
-            objetivo = t0 + len(mapa) * intervalo
-            espera = objetivo - time.perf_counter()
-            if espera > 0:
-                time.sleep(espera)
+        motivo = "detenida"
+        try:
+            cap.prioridad_hilo(self._modo(), captura=True)
+            emitir(capt.tomar())
+            t0 = t_ref = t_ant = time.perf_counter()
+            ritmo = dt              # cada cuánto llegan cuadros del juego (promedio)
+            proximo_aviso = t0
+            por_eventos = getattr(capt, "_dxcam", None) is not None
 
-            try:
-                datos = capt.fotograma() if ultimo_nuevo is not None else capt.tomar()
-            except Exception as e:
-                motivo = f"error: {e}"
-                break
-            emitir(datos)
+            while not self._parar.is_set():
+                if por_eventos:
+                    datos = capt.fotograma()  # None si el juego no mostró un cuadro nuevo
+                    ahora = time.perf_counter()
+                    if datos is None:
+                        # Pantalla quieta: ir repitiendo para que la duración sea la real.
+                        k = round((ahora - t_ref) / dt)
+                        if k >= 2:
+                            for _ in range(k - 1):
+                                emitir(None)
+                            t_ref += (k - 1) * dt
+                        time.sleep(0.001)
+                    else:
+                        k = round((ahora - t_ref) / dt)
+                        parejo = 0.95 * dt < ritmo < 1.05 * dt  # ritmo de antes de este cuadro
+                        ritmo = 0.9 * ritmo + 0.1 * (ahora - t_ant)
+                        t_ant = ahora
+                        if k == 2 and parejo:
+                            # El juego va parejo a ~60: un cuadro que "llega" casi al doble
+                            # casi siempre es uno detectado tarde, no uno perdido. Se deja en
+                            # su lugar; si de verdad faltó uno, el siguiente lo corrige solo.
+                            k = 1
+                        if k >= 1:  # k == 0: llegó antes de tiempo (monitor a más de 60 Hz)
+                            for _ in range(k - 1):
+                                emitir(None)
+                            emitir(datos)
+                            esperado = t_ref + k * dt
+                            # Seguir el ritmo real del juego si va a ~60 fps o menos;
+                            # si va más rápido, mantener el ritmo fijo de 60.
+                            t_ref = ahora if (abs(ahora - esperado) < TOLERANCIA and ritmo > 0.75 * dt) else esperado
+                else:
+                    # mss (sin dxcam): mirar la pantalla a horas fijas.
+                    espera = t0 + len(mapa) * dt - time.perf_counter()
+                    if espera > 0:
+                        time.sleep(espera)
+                    emitir(capt.fotograma())
+                    atraso = int((time.perf_counter() - t0) / dt) - len(mapa)
+                    for _ in range(max(0, atraso)):
+                        emitir(None)
+                    ahora = time.perf_counter()
 
-            # Si la captura se atrasó, rellenar los cuadros perdidos con el último.
-            atraso = int((time.perf_counter() - t0) / intervalo) - len(mapa)
-            for _ in range(max(0, atraso)):
-                emitir(None)
+                if ahora >= proximo_aviso:
+                    proximo_aviso = ahora + AVISAR_CADA_SEG
+                    self.avisar("anim_progreso", len(mapa), ahora - t0)
+                    cap.prioridad_hilo(self._modo(), captura=True)  # sigue el modo si se cambia
+                if self._bytes > self.limite:
+                    motivo = "límite de memoria"
+                    break
 
-            if len(mapa) % AVISAR_CADA == 0:
-                self.avisar("anim_progreso", len(mapa), time.perf_counter() - t0)
-                cap.prioridad_hilo(self._modo(), captura=True)  # sigue el modo si se cambia
-            if self._bytes > self.limite:
-                motivo = "límite de memoria"
-                break
+            # Completar hasta el momento en que se detuvo.
+            if por_eventos and mapa:
+                k = round((time.perf_counter() - t_ref) / dt)
+                for _ in range(max(0, k - 1)):
+                    emitir(None)
+        except Exception as e:
+            motivo = f"error: {e}"
 
         self._parar.set()
-        return mapa, futuros, primero, motivo
+        return mapa, estado["primero"], motivo

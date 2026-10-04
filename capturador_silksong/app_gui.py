@@ -7,11 +7,13 @@ se pone al frente sola ni toma el foco, así que se puede dejar abierta
 """
 
 import ctypes
+import multiprocessing
 import os
 import queue
 import threading
 import time
 import traceback
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import animacion
 import capturador as cap
+import trabajador
 from tiempos import RegistroTiempos, formato_duracion
 
 CARPETA = cap.CARPETA_SCRIPT
@@ -380,6 +383,7 @@ class Escucha(threading.Thread):
         self.grabador = None    # animación en curso (o guardándose)
         self.grabadores = []    # todas las que aún no terminan de guardarse
         self.guardador = None
+        self.pool = None        # procesos que comprimen (así nunca frenan la captura)
 
     def recargar(self):
         self._recargar = True
@@ -418,7 +422,7 @@ class Escucha(threading.Thread):
             self._avisar("log", "Animación ignorada: no hay ningún temporizador en marcha.")
             return
         try:
-            g = animacion.GrabadorAnimacion(self.config, self._avisar)
+            g = animacion.GrabadorAnimacion(self.config, self._avisar, self.pool)
             g.iniciar()
         except Exception as e:
             self._avisar("log", f"[!] No se pudo iniciar la animación: {e}")
@@ -462,8 +466,11 @@ class Escucha(threading.Thread):
         except Exception as e:
             self._avisar("error", f"No se pudo preparar la captura de pantalla: {e}")
 
+        self.pool = ProcessPoolExecutor(max_workers=animacion.HILOS["grabacion"],
+                                        mp_context=multiprocessing.get_context("spawn"))
+        self.pool.submit(trabajador.calentar)  # arranca un proceso desde ya
         guardador = cap.Guardador(self.config, aviso=lambda t: self._avisar("log", t.strip()),
-                                  al_guardar=self._guardada)
+                                  al_guardar=self._guardada, pool=self.pool)
         guardador.start()
         self.guardador = guardador
 
@@ -513,7 +520,11 @@ class Escucha(threading.Thread):
                             self._avisar("log", "[!] La captura de pantalla no está disponible.")
                         else:
                             try:
-                                guardador.cola.put((real, datetime.now(), capturador.tomar()))
+                                # El número se aparta al presionar, así fotos y animaciones siguen el orden.
+                                carpeta = Path(self.config["carpeta"]).expanduser()
+                                sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
+                                reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
+                                guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
                             except Exception as e:
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
@@ -525,6 +536,7 @@ class Escucha(threading.Thread):
 
         self.detener_animacion()
         guardador.cola.join()
+        self.pool.shutdown(wait=True)
 
 
 # --------------------------------------------------------------------------
@@ -540,7 +552,7 @@ class App:
         self.config.setdefault("timer_seleccionado", None)
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("anim_fps", 60)
-        self.config.setdefault("anim_salida", "avif")
+        self.config.setdefault("anim_guardar", "ambos")
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
         self._grabando_desde = None
         self._migrar_botones_propios()
@@ -735,7 +747,7 @@ class App:
             command=lambda v: self._cambiar_salida({n: k for k, n in nombres_salida.items()}[v]),
             fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
             unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_salida.set(nombres_salida.get(self.config["anim_salida"], "AVIF animado"))
+        self.seg_salida.set(nombres_salida.get(self.config["anim_guardar"], "Ambos"))
         self.seg_salida.pack(**pad)
 
         separador(der).pack(pady=20, **pad)
@@ -832,10 +844,10 @@ class App:
         self._guardar()
 
     def _cambiar_salida(self, salida):
-        self.config["anim_salida"] = salida
+        self.config["anim_guardar"] = salida
         self._guardar()
         textos = {"avif": "un solo archivo .avif animado junto a las fotos",
-                  "cuadros": "una carpeta animNN con cada cuadro",
+                  "cuadros": "una carpeta con cada cuadro",
                   "ambos": "la carpeta de cuadros con el .avif animado adentro"}
         self.log(f"Las animaciones se guardarán como {textos[salida]}.")
         if salida != "cuadros" and not animacion.avif_disponible():
@@ -1329,7 +1341,7 @@ class App:
     def _sufijo_cambiado(self):
         sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
         ext = cap.extension(self.config.get("formato"))
-        self.lbl_ejemplo.configure(text=f"{sufijo}-001.{ext}  ·  {sufijo}-anim01-001.{ext}")
+        self.lbl_ejemplo.configure(text=f"{sufijo}-001.{ext}  ·  {sufijo}-anim_002")
         if self.config.get("sufijo") != sufijo:
             self.config["sufijo"] = sufijo
             # Guardar el archivo sin escribirlo con cada tecla.

@@ -15,7 +15,7 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide en tres columnas:
 
-- **Izquierda:** el **sufijo** de los archivos y las fotos recientes en miniatura. Clic en una para abrirla. Las animaciones aparecen como una sola miniatura (su primer cuadro) con la etiqueta ▶ y el número de cuadros. Al hacer clic se abre su carpeta.
+- **Izquierda:** el **sufijo** de los archivos y las fotos recientes en miniatura. Clic en una para abrirla. Las animaciones aparecen como una sola miniatura (su primer cuadro) con la etiqueta ▶ y el número de cuadros.
 - **Centro:** una tarjeta por temporizador, con el tiempo en grande y los totales de hoy, semana y total.
 - **Derecha:** atajos de foto, formato, carpeta, sonidos y registro de actividad.
 
@@ -38,17 +38,28 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 Arriba de las miniaturas está el campo **Sufijo** (por ejemplo `doric`):
 
-- Fotos: `doric-001.png`, `doric-002.png`, … (sigue el número más alto que ya exista).
-- Animaciones: según **Guardar como**:
-  - **AVIF animado** (por defecto): un solo archivo `doric-anim01.avif` junto a las fotos.
-  - **Cuadros:** subcarpeta `anim01` con `doric-anim01-001.png`, `doric-anim01-002.png`, …
-  - **Ambos:** la subcarpeta de cuadros con `doric-anim01.avif` adentro.
+Fotos y animaciones **comparten la numeración**, así siempre sabes en qué orden se tomaron:
+
+```
+doric-001.webp
+doric-002.webp
+doric-anim_003/      ← animación: doric-anim_003-001.webp, -002.webp, … y doric-anim_003.avif
+doric-004.webp
+```
+
+El número se aparta en el momento en que presionas el botón, así se respeta el orden aunque una animación todavía se esté guardando.
+
+Las animaciones, según **Guardar como**:
+- **Ambos** (por defecto): la carpeta con todos los cuadros sueltos y el `.avif` animado adentro. Los cuadros quedan como respaldo.
+- **AVIF animado:** solo el archivo `doric-anim_003.avif`, junto a las fotos.
+- **Cuadros:** solo la carpeta de cuadros.
 
 ## Animaciones (60 fps)
 
 - Asigna el **Atajo de animación** en la columna derecha. Presiónalo una vez para empezar (suena un tono que sube) y otra para terminar (suena un tono que baja). Mientras graba, arriba aparece **● REC** con el tiempo y los cuadros.
-- Si la pantalla no cambió en un cuadro, se repite el anterior, así la secuencia siempre dura lo mismo que en la realidad.
-- Los cuadros esperan en memoria y se guardan con hilos de prioridad mínima mientras grabas y después de parar, para no quitarle fluidez al juego. Si se llega al límite de memoria (35 % de la RAM, máximo 6 GB), la grabación se detiene sola.
+- **Fluidez:** se toma cada cuadro que el juego muestra, en el momento en que aparece (se revisa cada ~1 ms). Si el juego tarda más en mostrar el siguiente (una escena a 30 fps o la pantalla quieta), el cuadro anterior se repite para que la animación dure lo mismo que en la realidad. En el `.avif` esos repetidos casi no pesan. Si tu monitor va a más de 60 Hz, se toma un cuadro por cada 1/60 de segundo. Para que salga perfecta, limita el juego a 60 fps.
+- **Para no frenar la captura**, la compresión ocurre en procesos aparte. Python no deja que dos hilos del mismo proceso trabajen a la vez mientras se comprime WebP o JPG (medido: hasta 60 ms con WebP), y eso hacía que se perdieran cuadros. Ahora el hilo de captura solo toma el cuadro y lo pasa a memoria compartida.
+- Los cuadros esperan en memoria mientras se comprimen, durante la grabación y después de parar. Si se llega al límite de memoria (35 % de la RAM, máximo 6 GB), la grabación se detiene sola.
 - En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.

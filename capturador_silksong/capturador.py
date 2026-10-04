@@ -287,11 +287,12 @@ class Capturador:
 class Guardador(threading.Thread):
     """Codifica y guarda en segundo plano para no bloquear la lectura del mando."""
 
-    def __init__(self, config, aviso=print, al_guardar=None):
+    def __init__(self, config, aviso=print, al_guardar=None, pool=None):
         super().__init__(daemon=True)
         self.config = config
         self.aviso = aviso            # función que recibe el texto a mostrar
         self.al_guardar = al_guardar  # opcional: función(ruta, imagen) tras guardar
+        self.pool = pool              # opcional: procesos donde comprimir (no frenan la captura)
         self.cola = queue.Queue()
         self.carpeta = Path(config["carpeta"]).expanduser()
         self.carpeta.mkdir(parents=True, exist_ok=True)
@@ -301,9 +302,10 @@ class Guardador(threading.Thread):
             item = self.cola.get()
             if item is None:
                 break
-            nombre_atajo, momento, datos = item
+            nombre_atajo, momento, datos = item[:3]
+            reserva = item[3] if len(item) > 3 else None  # (carpeta, sufijo, número) ya apartado
             try:
-                ruta, img = self._guardar(nombre_atajo, momento, datos)
+                ruta, img = self._guardar(nombre_atajo, momento, datos, reserva)
                 self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.al_guardar:
                     self.al_guardar(ruta, img)
@@ -314,17 +316,33 @@ class Guardador(threading.Thread):
             finally:
                 self.cola.task_done()
 
-    def _guardar(self, nombre_atajo, momento, datos):
-        prioridad_hilo(self.config.get("prioridad", "juego"))
-        img = ajustar_resolucion(Capturador.a_imagen(datos), self.config.get("resolucion"))
+    def _guardar(self, nombre_atajo, momento, datos, reserva=None):
+        modo = self.config.get("prioridad", "juego")
         ext = extension(self.config["formato"])
-        sufijo = limpiar_sufijo(self.config.get("sufijo"))
-        # Se lee cada vez por si la carpeta o el sufijo se cambiaron desde la app.
-        self.carpeta = Path(self.config["carpeta"]).expanduser()
-        self.carpeta.mkdir(parents=True, exist_ok=True)
-        ruta = self.carpeta / f"{sufijo}-{siguiente_numero(self.carpeta, sufijo):03d}.{ext}"
-        guardar_imagen(img, ruta, self.config)
-        return ruta, img
+        if reserva is None:
+            # Se lee cada vez por si la carpeta o el sufijo se cambiaron desde la app.
+            carpeta = Path(self.config["carpeta"]).expanduser()
+            sufijo = limpiar_sufijo(self.config.get("sufijo"))
+            reserva = (carpeta, sufijo, reservar_numero(carpeta, sufijo))
+        carpeta, sufijo, numero = reserva
+        self.carpeta = carpeta
+        ruta = carpeta / f"{sufijo}-{numero:03d}.{ext}"
+
+        if self.pool is None:
+            prioridad_hilo(modo)
+            img = ajustar_resolucion(Capturador.a_imagen(datos), self.config.get("resolucion"))
+            guardar_imagen(img, ruta, self.config)
+            return ruta, img
+
+        import trabajador
+        from PIL import Image
+        shm, forma = copiar_a_memoria(datos)
+        try:
+            tam, crudo = self.pool.submit(trabajador.guardar, shm.name, forma, str(ruta),
+                                          opciones_imagen(self.config), modo, (528, 296)).result()
+        finally:
+            liberar_memoria(shm)
+        return ruta, Image.frombytes("RGB", tam, crudo)
 
 
 CARACTERES_PROHIBIDOS = re.compile(r'[\\/:*?"<>|]')
@@ -356,10 +374,62 @@ def guardar_imagen(img, ruta, config, rapido=False):
 
 
 def siguiente_numero(carpeta, sufijo):
-    """Siguiente número libre para <sufijo>-NNN.png/jpg en la carpeta."""
-    patron = re.compile(re.escape(sufijo) + r"-(\d+)\.(png|jpe?g|webp)$", re.IGNORECASE)
-    numeros = [int(m.group(1)) for p in Path(carpeta).iterdir() if (m := patron.match(p.name))]
+    """Siguiente número libre del sufijo. Fotos y animaciones comparten la cuenta:
+
+    doric-001.webp, doric-002.webp, doric-anim_003/ (o doric-anim_003.avif), doric-004.webp…
+    """
+    patron = re.compile(re.escape(sufijo) + r"-(?:anim_)?(\d+)(?:\.(?:png|jpe?g|webp|avif))?$", re.IGNORECASE)
+    carpeta = Path(carpeta)
+    if not carpeta.exists():
+        return 1
+    numeros = [int(m.group(1)) for p in carpeta.iterdir() if (m := patron.match(p.name))]
     return max(numeros, default=0) + 1
+
+
+_reservas = {}
+_reservas_lock = threading.Lock()
+
+
+def reservar_numero(carpeta, sufijo):
+    """Aparta el siguiente número para que una foto y una animación nunca tomen el mismo,
+    aunque el archivo todavía no exista en el disco."""
+    with _reservas_lock:
+        clave = (str(Path(carpeta).expanduser()).lower(), sufijo.lower())
+        numero = max(siguiente_numero(carpeta, sufijo), _reservas.get(clave, 0) + 1)
+        _reservas[clave] = numero
+        return numero
+
+
+def opciones_imagen(config):
+    """Lo que un proceso trabajador necesita saber para guardar (solo datos simples)."""
+    return {"resolucion": config.get("resolucion", "nativa"),
+            "calidad_jpg": config.get("calidad_jpg", 95),
+            "calidad_webp": config.get("calidad_webp", 90)}
+
+
+def copiar_a_memoria(datos):
+    """Copia un cuadro (dxcam o mss) a memoria compartida. Devuelve (shm, forma)."""
+    import numpy as np
+    from multiprocessing import shared_memory
+    tipo, obj = datos
+    if tipo == "bgra":
+        arr = obj
+    else:
+        ancho, alto = obj.size
+        arr = np.frombuffer(obj.bgra, dtype=np.uint8).reshape(alto, ancho, 4)
+    shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
+    destino = np.ndarray(arr.shape, dtype=np.uint8, buffer=shm.buf)
+    destino[:] = arr
+    del destino
+    return shm, arr.shape
+
+
+def liberar_memoria(shm):
+    shm.close()
+    try:
+        shm.unlink()  # en Windows no hace falta (se libera al cerrar), en Linux sí
+    except FileNotFoundError:
+        pass
 
 
 def sonar():
@@ -371,7 +441,9 @@ def sonar():
 # Prioridades de Windows según el modo de rendimiento.
 _PRIORIDAD_PROCESO = {"juego": 0x00004000, "grabacion": 0x00000020}  # BELOW_NORMAL / NORMAL
 _PRIORIDAD_TRABAJO = {"juego": -2, "grabacion": 0}   # hilos que guardan: LOWEST / NORMAL
-_PRIORIDAD_CAPTURA = {"juego": 0, "grabacion": 2}    # hilo que captura: NORMAL / HIGHEST
+# El hilo que captura trabaja muy poco por cuadro, así que puede ir con prioridad alta
+# sin quitarle fluidez al juego, y así no pierde cuadros.
+_PRIORIDAD_CAPTURA = {"juego": 2, "grabacion": 15}   # hilo que captura: HIGHEST / TIME_CRITICAL
 
 
 def aplicar_prioridad(modo):
