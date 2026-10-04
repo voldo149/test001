@@ -33,4 +33,4 @@ Puedes tener varios atajos. Si dos se completan a la vez, gana el que tiene más
 
 ## config.json
 
-Se crea al agregar el primer atajo. Opciones: `carpeta`, `formato`, `calidad_jpg`, `motor` (`auto`/`dxcam`/`mss`), `monitor`, `sonido`, `espera_entre_fotos`.
+Se crea al agregar el primer atajo. Opciones: `carpeta`, `formato`, `calidad_jpg`, `motor` (`auto`/`dxcam`/`mss`), `monitor`, `sonido` (apagado por defecto; también se cambia con la opción 6 del menú), `espera_entre_fotos`.

@@ -35,7 +35,7 @@ CONFIG_POR_DEFECTO = {
     "calidad_jpg": 95,
     "motor": "auto",           # "auto", "dxcam" o "mss"
     "monitor": 1,              # 1 = monitor principal
-    "sonido": True,
+    "sonido": False,          # aviso de Windows al tomar cada foto
     "espera_entre_fotos": 0.3, # segundos mínimos entre dos fotos del mismo atajo
     "atajos": [],              # [{"nombre": "foto", "botones": ["BACK", "RB"]}]
 }
@@ -454,6 +454,12 @@ def cmd_iniciar(config):
         guardador.cola.join()
 
 
+def cmd_sonido(config):
+    config["sonido"] = not config["sonido"]
+    guardar_config(config)
+    print(f"[ok] Sonido al tomar foto: {'activado' if config['sonido'] else 'desactivado'}")
+
+
 def menu(config):
     opciones = {
         "1": ("Iniciar (escuchar el mando)", lambda: cmd_iniciar(config)),
@@ -461,11 +467,14 @@ def menu(config):
         "3": ("Ver atajos", lambda: cmd_listar(config)),
         "4": ("Borrar atajo", lambda: cmd_borrar(config, input("Nombre a borrar: ").strip())),
         "5": ("Probar mando", cmd_probar),
+        "6": (None, lambda: cmd_sonido(config)),
         "0": ("Salir", None),
     }
     while True:
         print("\n=== Capturador Silksong ===")
         for k, (texto, _) in opciones.items():
+            if k == "6":
+                texto = f"Sonido al tomar foto: {'SI' if config['sonido'] else 'NO'} (cambiar)"
             print(f"  {k}) {texto}")
         eleccion = input("> ").strip()
         if eleccion == "0":
