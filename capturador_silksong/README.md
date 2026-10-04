@@ -20,7 +20,7 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 ## Uso
 
-- **+ Temporizador:** escribe el nombre de la actividad y, si quieres, presiona el botón del mando que la va a iniciar y parar. También puedes iniciarla o pararla con el botón **Iniciar / Parar** de su tarjeta.
+- **+ Temporizador:** escribe el nombre de la actividad (por ejemplo, el juego). Se inicia y se para con el atajo de temporizador o con el botón **Iniciar / Parar** de su tarjeta.
 - Mientras corre un temporizador, el título de la ventana en la barra de tareas muestra el tiempo.
 - **+ Atajo de foto:** escribe un nombre y presiona el botón o la combinación.
 - **Ver historial:** abre `tiempos.csv` en Excel, con una fila por sesión (actividad, inicio, fin, duración).
@@ -28,9 +28,8 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 ## Varios juegos con un solo atajo
 
-- **Atajo de temporizador (global):** se asigna en la columna derecha. Inicia o para el temporizador **seleccionado**.
-- **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo global, el que estaba corriendo se detiene y se guarda.
-- Cada temporizador puede tener además su propio botón (**+ Botón**), opcional.
+- **Atajo de temporizador:** es uno solo para todos y se asigna en la columna derecha. Inicia o para el temporizador **seleccionado**.
+- **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
 - **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Se apaga con el interruptor en "Atajos de foto".
 - **Cancelar:** aparece en la tarjeta mientras corre. Descarta la sesión actual como si nunca hubiera pasado, por ejemplo si lo dejaste corriendo por accidente. Pide confirmación y no toca las sesiones anteriores.
 

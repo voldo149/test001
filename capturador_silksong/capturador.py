@@ -39,7 +39,7 @@ CONFIG_POR_DEFECTO = {
     "sonido": False,          # aviso de Windows al tomar cada foto
     "espera_entre_fotos": 0.3, # segundos mínimos entre dos fotos del mismo atajo
     "atajos": [],              # [{"nombre": "foto", "botones": ["BACK", "RB"]}]
-    "timers": [],              # [{"nombre": "escribir", "botones": ["BACK", "Y"]}] (botones opcional)
+    "timers": [],              # [{"nombre": "escribir"}]; se inician/paran con "atajo_timer"
 }
 
 # --------------------------------------------------------------------------
@@ -378,7 +378,8 @@ def cmd_agregar(config):
     nombres = mascara_a_nombres(mascara)
     print(f"  Detectado: {texto_combo(nombres)}")
 
-    for a in config["atajos"] + [t for t in config["timers"] if t.get("botones")]:
+    otros = [{"nombre": "atajo de temporizador", "botones": config["atajo_timer"]}] if config.get("atajo_timer") else []
+    for a in config["atajos"] + otros:
         if nombres_a_mascara(a["botones"]) == mascara:
             print(f"  Esa combinación ya está asignada a '{a['nombre']}'.")
             return

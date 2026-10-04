@@ -244,9 +244,9 @@ class TarjetaTimer(ctk.CTkFrame):
 
         linea = ctk.CTkFrame(self, fg_color="transparent")
         linea.pack(fill="x", padx=16, pady=(4, 0))
-        boton_txt = cap.texto_combo(timer["botones"]) if timer.get("botones") else "Sin botón"
-        ctk.CTkLabel(linea, text=f"🎮  {boton_txt}", font=fuente(12), text_color=TENUE,
-                     anchor="w").pack(side="left")
+        self.lbl_mando = ctk.CTkLabel(linea, text="Clic para seleccionar", font=fuente(12), text_color=TENUE,
+                                      anchor="w")
+        self.lbl_mando.pack(side="left")
         self.marca = insignia(linea, "Seleccionado", color=VERDE, borde=VERDE_BORDE)
 
         self.reloj = ctk.CTkLabel(self, text="0:00:00", font=fuente(34, "bold"), text_color=TENUE, anchor="w")
@@ -271,12 +271,6 @@ class TarjetaTimer(ctk.CTkFrame):
         self.btn.pack(side="left")
         chico = dict(width=10, height=30, font=fuente(12))
         boton(abajo, "Borrar", lambda: app.borrar_timer(self.nombre), "fantasma", **chico).pack(side="right")
-        if timer.get("botones"):
-            boton(abajo, "Quitar botón", lambda: app.quitar_boton_timer(self.nombre), "fantasma",
-                  **chico).pack(side="right")
-        else:
-            boton(abajo, "+ Botón", lambda: app.asignar_boton_timer(self.nombre), "fantasma",
-                  **chico).pack(side="right")
         # Solo visible mientras corre: descarta la sesión actual.
         self.btn_cancelar = boton(abajo, "Cancelar", lambda: app.cancelar_timer(self.nombre), "fantasma",
                                   text_color=ROJO, **chico)
@@ -305,13 +299,20 @@ class TarjetaTimer(ctk.CTkFrame):
             else:
                 widget.pack_forget()
 
-    def actualizar(self, corriendo, seleccionado, actual, hoy, semana, total):
+    def actualizar(self, corriendo, seleccionado, atajo, actual, hoy, semana, total):
         self._poner("reloj", self.reloj, text=actual, text_color=VERDE if corriendo else TENUE)
         if seleccionado:
             self._poner("borde", self, border_color=VERDE, border_width=2)
         else:
             self._poner("borde", self, border_color=VERDE_BORDE if corriendo else BORDE, border_width=1)
         self._mostrar("marca", self.marca, seleccionado, side="right")
+        if not seleccionado:
+            texto = "Clic para seleccionar"
+        elif atajo:
+            texto = f"🎮  {atajo}"
+        else:
+            texto = "🎮  Asigna el atajo de temporizador →"
+        self._poner("mando", self.lbl_mando, text=texto)
         self._mostrar("cancelar", self.btn_cancelar, corriendo, side="right")
         self._poner("estado", self.estado, text="● EN MARCHA" if corriendo else "DETENIDO",
                     text_color=VERDE if corriendo else TENUE)
@@ -364,11 +365,6 @@ class Escucha(threading.Thread):
             clave = f"foto:{a['nombre']}"
             atajos.append({"nombre": clave, "botones": a["botones"]})
             acciones[clave] = ("foto", a["nombre"])
-        for t in self.config["timers"]:
-            if t.get("botones"):
-                clave = f"timer:{t['nombre']}"
-                atajos.append({"nombre": clave, "botones": t["botones"]})
-                acciones[clave] = ("timer", t["nombre"])
         if self.config.get("atajo_timer"):
             atajos.append({"nombre": "global", "botones": self.config["atajo_timer"]})
             acciones["global"] = ("global", None)
@@ -448,8 +444,6 @@ class Escucha(threading.Thread):
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
                         self._avisar("timer_global", datetime.now())
-                    else:
-                        self._avisar("timer", real, datetime.now())
 
             time.sleep(cap.INTERVALO_LECTURA)
 
@@ -467,6 +461,7 @@ class App:
         self.config.setdefault("pitido_timers", False)
         self.config.setdefault("fotos_solo_con_timer", True)
         self.config.setdefault("timer_seleccionado", None)
+        self._migrar_botones_propios()
         self._ultimo_tick = datetime.now()
         self.registro = RegistroTiempos(CARPETA)
         self.eventos = queue.Queue()
@@ -505,6 +500,14 @@ class App:
         root.after(100, self._procesar_eventos)
         root.after(500, self._refrescar_tiempos)
         root.after(LATIDO_CADA_MS, self._latido)
+
+    def _migrar_botones_propios(self):
+        """Antes cada temporizador tenía su botón; ahora hay un solo atajo para todos."""
+        propios = [b for b in (t.pop("botones", None) for t in self.config["timers"]) if b]
+        if propios:
+            # El primero que existía pasa a ser el atajo para todos (si no había uno).
+            self.config.setdefault("atajo_timer", propios[0])
+            cap.guardar_config(self.config)
 
     # ------------------------------------------------------------------ UI
 
@@ -578,7 +581,7 @@ class App:
 
         cab, self.ins_activos = titulo_seccion(centro, "Temporizadores", "0 activos")
         cab.grid(row=0, column=0, sticky="ew", padx=28, pady=(22, 2))
-        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla: el atajo global inicia y para la seleccionada.",
+        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla: el atajo de temporizador inicia y para la seleccionada.",
                      font=fuente(12), text_color=TENUE, anchor="w").grid(row=1, column=0, sticky="ew", padx=28)
 
         self.grilla_timers = ctk.CTkScrollableFrame(centro, fg_color="transparent",
@@ -605,7 +608,7 @@ class App:
                                  button_color=TEXTO, button_hover_color="#ffffff")
 
         # Atajo global de temporizador
-        cab, _ = titulo_seccion(der, "Atajo de temporizador", "Global")
+        cab, _ = titulo_seccion(der, "Atajo de temporizador", "Todos")
         cab.pack(pady=(18, 4), **pad)
         ctk.CTkLabel(der, text="Inicia o para el temporizador seleccionado.", font=fuente(12),
                      text_color=TENUE, anchor="w").pack(pady=(0, 8), **pad)
@@ -768,11 +771,12 @@ class App:
         self.escucha.hay_timer = bool(self.registro.en_curso)
 
         en_marcha = []
+        atajo = cap.texto_combo(self.config["atajo_timer"]) if self.config.get("atajo_timer") else None
         for nombre, tarjeta in self.tarjetas.items():
             corriendo = self.registro.corriendo(nombre)
             actual = formato_duracion(self.registro.actual(nombre, ahora))
             tarjeta.actualizar(
-                corriendo, nombre == self.config["timer_seleccionado"], actual,
+                corriendo, nombre == self.config["timer_seleccionado"], atajo, actual,
                 formato_duracion(self.registro.total_hoy(nombre, ahora)),
                 formato_duracion(self.registro.total_semana(nombre, ahora)),
                 formato_duracion(self.registro.total(nombre, ahora=ahora)),
@@ -854,8 +858,6 @@ class App:
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,
                                                   fg_color=ROJO_FONDO)
                     self.log(f"[!] {evento[1]}")
-                elif tipo == "timer":
-                    self._alternar_timer(evento[1], evento[2], desde_mando=True)
                 elif tipo == "timer_global":
                     self._timer_global(evento[1])
                 elif tipo == "combo":
@@ -927,8 +929,8 @@ class App:
         if al_terminar is None:
             return
         nombres = cap.mascara_a_nombres(mascara)
-        duenos = self.config["atajos"] + self.config["timers"] + [
-            {"nombre": "atajo global de temporizador", "botones": self.config.get("atajo_timer")}]
+        duenos = self.config["atajos"] + [
+            {"nombre": "atajo de temporizador", "botones": self.config.get("atajo_timer")}]
         for dueno in duenos:
             if dueno.get("botones") and cap.nombres_a_mascara(dueno["botones"]) == mascara:
                 Dialogo.mostrar(self.root, "Combinación ocupada",
@@ -1000,26 +1002,7 @@ class App:
             return
         self.config["timers"].append({"nombre": nombre})
         self._guardar()
-        self._refrescar_timers()
-        if Dialogo.confirmar(self.root, "Botón del mando",
-                             f"¿Asignar un botón del mando para iniciar y parar «{nombre}»?", si="Asignar"):
-            self.asignar_boton_timer(nombre)
-
-    def asignar_boton_timer(self, nombre):
-        timer = self._timer(nombre)
-
-        def listo(botones):
-            timer["botones"] = botones
-            self._guardar()
-            self.escucha.recargar()
-            self._refrescar_timers()
-            self.log(f"Temporizador '{nombre}' = {cap.texto_combo(botones)}")
-        self._grabar_combo(f"Botón para «{nombre}»", listo)
-
-    def quitar_boton_timer(self, nombre):
-        self._timer(nombre).pop("botones", None)
-        self._guardar()
-        self.escucha.recargar()
+        self.seleccionar_timer(nombre)
         self._refrescar_timers()
 
     def borrar_timer(self, nombre):
@@ -1092,7 +1075,8 @@ class App:
             self._guardar()
             self.escucha.recargar()
             self._refrescar_global()
-            self.log(f"Atajo global de temporizador = {cap.texto_combo(botones)}")
+            self._refrescar_tiempos(reprogramar=False)
+            self.log(f"Atajo de temporizador = {cap.texto_combo(botones)}")
         self._grabar_combo("Atajo global de temporizador", listo)
 
     def quitar_global(self):
@@ -1100,6 +1084,7 @@ class App:
         self._guardar()
         self.escucha.recargar()
         self._refrescar_global()
+        self._refrescar_tiempos(reprogramar=False)
 
     def _alternar_timer(self, nombre, momento, desde_mando=False):
         if self._timer(nombre) is None:
