@@ -270,10 +270,11 @@ class Capturador:
 class Guardador(threading.Thread):
     """Codifica y guarda en segundo plano para no bloquear la lectura del mando."""
 
-    def __init__(self, config, aviso=print):
+    def __init__(self, config, aviso=print, al_guardar=None):
         super().__init__(daemon=True)
         self.config = config
-        self.aviso = aviso  # función que recibe el texto a mostrar
+        self.aviso = aviso            # función que recibe el texto a mostrar
+        self.al_guardar = al_guardar  # opcional: función(ruta, imagen) tras guardar
         self.cola = queue.Queue()
         self.carpeta = Path(config["carpeta"]).expanduser()
         self.carpeta.mkdir(parents=True, exist_ok=True)
@@ -285,8 +286,10 @@ class Guardador(threading.Thread):
                 break
             nombre_atajo, momento, datos = item
             try:
-                ruta = self._guardar(nombre_atajo, momento, datos)
+                ruta, img = self._guardar(nombre_atajo, momento, datos)
                 self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
+                if self.al_guardar:
+                    self.al_guardar(ruta, img)
                 if self.config["sonido"]:
                     sonar()
             except Exception as e:
@@ -309,7 +312,7 @@ class Guardador(threading.Thread):
         else:
             # compress_level bajo = mucho más rápido, archivo algo más grande.
             img.save(ruta, "PNG", compress_level=1)
-        return ruta
+        return ruta, img
 
 
 def sonar():

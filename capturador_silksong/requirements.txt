@@ -2,3 +2,4 @@ mss
 Pillow
 numpy
 dxcam
+customtkinter>=5.2

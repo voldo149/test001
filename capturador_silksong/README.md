@@ -10,13 +10,21 @@ App para Windows que hace dos cosas con el mando (XInput), sin pausar el juego:
 1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador Silksong** con icono en el Escritorio y en el menú Inicio.
 2. Para abrirla con **un clic**: busca "Capturador Silksong" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**.
 
+## La ventana
+
+Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide en tres columnas:
+
+- **Izquierda:** fotos recientes en miniatura. Clic en una para abrirla.
+- **Centro:** una tarjeta por temporizador, con el tiempo en grande y los totales de hoy, semana y total.
+- **Derecha:** atajos de foto, formato, carpeta, sonidos y registro de actividad.
+
 ## Uso
 
-- **Temporizadores → Nuevo:** escribe el nombre de la actividad y, si quieres, presiona el botón del mando que la va a iniciar y parar. También puedes iniciarla o pararla con el botón **Iniciar / Parar** o con doble clic en la fila.
+- **+ Temporizador:** escribe el nombre de la actividad y, si quieres, presiona el botón del mando que la va a iniciar y parar. También puedes iniciarla o pararla con el botón **Iniciar / Parar** de su tarjeta.
 - Mientras corre un temporizador, el título de la ventana en la barra de tareas muestra el tiempo.
-- **Fotos → Agregar atajo:** escribe un nombre y presiona el botón o la combinación.
+- **+ Atajo de foto:** escribe un nombre y presiona el botón o la combinación.
 - **Ver historial:** abre `tiempos.csv` en Excel, con una fila por sesión (actividad, inicio, fin, duración).
-- La tabla muestra el tiempo de la sesión en marcha y los totales de hoy, de la semana y de siempre.
+- Cada tarjeta muestra el tiempo de la sesión en marcha y los totales de hoy, de la semana y de siempre.
 - Si la app se cierra de golpe o se apaga la PC, al abrirla otra vez la sesión se guarda hasta el último momento registrado (cada 30 s).
 - Al cerrar la ventana, los temporizadores en marcha se detienen y se guardan.
 
