@@ -116,9 +116,12 @@ def hacer_miniatura(img):
 
 
 def poner_icono(ventana):
-    # CustomTkinter pone su propio icono ~200 ms después de crear la ventana.
+    # Ponerlo de inmediato: así CustomTkinter ya no lo cambia por el suyo a los 200 ms.
     if ICONO.exists() and os.name == "nt":
-        ventana.after(250, lambda: ventana.iconbitmap(str(ICONO)))
+        try:
+            ventana.iconbitmap(str(ICONO))
+        except tk.TclError:
+            pass
 
 
 # --------------------------------------------------------------------------
@@ -1134,7 +1137,7 @@ def main():
     if os.name == "nt":
         try:
             # Que la barra de tareas muestre nuestro icono y no el de Python.
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CapturadorSilksong")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(cap.APP_ID)
         except Exception:
             pass
     ctk.set_appearance_mode("dark")

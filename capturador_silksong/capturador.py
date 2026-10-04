@@ -28,6 +28,9 @@ from datetime import datetime
 from pathlib import Path
 
 CARPETA_SCRIPT = Path(__file__).resolve().parent
+# Identidad de la app en la barra de tareas. La ventana y el acceso directo deben
+# usar la misma para que Windows los junte en un solo icono.
+APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_SCRIPT / "config.json"
 
 CONFIG_POR_DEFECTO = {

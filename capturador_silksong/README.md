@@ -8,7 +8,7 @@ App para Windows que hace dos cosas con el mando (XInput), sin pausar el juego:
 ## Instalación (una sola vez)
 
 1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador Silksong** con icono en el Escritorio y en el menú Inicio.
-2. Para abrirla con **un clic**: busca "Capturador Silksong" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**.
+2. Para abrirla con **un clic**: busca "Capturador Silksong" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**. Ánclala desde Inicio, no desde la ventana abierta: así el icono anclado y la ventana son el mismo en la barra de tareas.
 
 ## La ventana
 
