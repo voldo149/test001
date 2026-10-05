@@ -209,7 +209,7 @@ def crear_avif(rutas, destino, fps, calidad=80, hilos=None):
 
 class GrabadorAnimacion:
     def __init__(self, config, avisar, pool):
-        self.base = Path(config["carpeta"]).expanduser()
+        self.base = cap.carpeta_actual(config)  # la del temporizador seleccionado o la general
         self.sufijo = cap.limpiar_sufijo(config.get("sufijo"))
         self.ext = cap.extension(config.get("formato"))       # fijo para toda la animación
         self.resolucion = config.get("resolucion", "nativa")  # fija para toda la animación

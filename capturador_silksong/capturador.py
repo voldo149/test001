@@ -294,8 +294,7 @@ class Guardador(threading.Thread):
         self.al_guardar = al_guardar  # opcional: función(ruta, imagen) tras guardar
         self.pool = pool              # opcional: procesos donde comprimir (no frenan la captura)
         self.cola = queue.Queue()
-        self.carpeta = Path(config["carpeta"]).expanduser()
-        self.carpeta.mkdir(parents=True, exist_ok=True)
+        self.carpeta = carpeta_actual(config)
 
     def run(self):
         while True:
@@ -321,10 +320,11 @@ class Guardador(threading.Thread):
         ext = extension(self.config["formato"])
         if reserva is None:
             # Se lee cada vez por si la carpeta o el sufijo se cambiaron desde la app.
-            carpeta = Path(self.config["carpeta"]).expanduser()
+            carpeta = carpeta_actual(self.config)
             sufijo = limpiar_sufijo(self.config.get("sufijo"))
             reserva = (carpeta, sufijo, reservar_numero(carpeta, sufijo))
         carpeta, sufijo, numero = reserva
+        carpeta.mkdir(parents=True, exist_ok=True)
         self.carpeta = carpeta
         ruta = carpeta / f"{sufijo}-{numero:03d}.{ext}"
 
@@ -352,6 +352,16 @@ def limpiar_sufijo(sufijo):
     """Quita caracteres que Windows no acepta en nombres de archivo."""
     limpio = CARACTERES_PROHIBIDOS.sub("", str(sufijo or "")).strip().strip(".")
     return limpio or "captura"
+
+
+def carpeta_actual(config):
+    """Dónde guardar ahora: la carpeta del temporizador seleccionado si tiene una propia,
+    si no, la carpeta general."""
+    seleccionado = config.get("timer_seleccionado")
+    for t in config.get("timers", []):
+        if t["nombre"] == seleccionado and t.get("carpeta"):
+            return Path(t["carpeta"]).expanduser()
+    return Path(config["carpeta"]).expanduser()
 
 
 def extension(formato):

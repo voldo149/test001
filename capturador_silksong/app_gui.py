@@ -316,11 +316,13 @@ class TarjetaTimer(ctk.CTkFrame):
         self._enlazar_clic(self)
 
     def _enlazar_clic(self, widget):
-        if isinstance(widget, ctk.CTkButton):
-            return
-        widget.bind("<Button-1>", lambda e: self.app.seleccionar_timer(self.nombre), add="+")
+        # Solo widgets de CustomTkinter: su .bind ya cubre sus piezas internas de tkinter.
+        # Si también se enlazaran esas piezas, un clic contaría doble (y seleccionar + quitar
+        # la selección se cancelarían).
+        widget.bind("<Button-1>", lambda e: self.app.seleccionar_timer(self.nombre, alternar=True), add="+")
         for hijo in widget.winfo_children():
-            self._enlazar_clic(hijo)
+            if isinstance(hijo, (ctk.CTkFrame, ctk.CTkLabel)):
+                self._enlazar_clic(hijo)
 
     def _poner(self, clave, widget, **kw):
         # Solo reconfigurar si cambió: redibujar es lo caro en CustomTkinter.
@@ -414,12 +416,18 @@ class Escucha(threading.Thread):
         cola = self.guardador.cola.unfinished_tasks if self.guardador else 0
         return bool(self.grabadores) or cola > 0
 
+    def _sin_timer(self):
+        """Aviso sonoro: se intentó capturar sin temporizador en marcha."""
+        if self.config.get("sonido_sin_timer", True):
+            cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
+
     def _alternar_animacion(self):
         if self.grabando_animacion:
             self.grabador.detener()
             return
         if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
             self._avisar("log", "Animación ignorada: no hay ningún temporizador en marcha.")
+            self._sin_timer()
             return
         try:
             g = animacion.GrabadorAnimacion(self.config, self._avisar, self.pool)
@@ -514,6 +522,7 @@ class Escucha(threading.Thread):
                     if tipo == "foto":
                         if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
                             self._avisar("log", "Foto ignorada: no hay ningún temporizador en marcha.")
+                            self._sin_timer()
                         elif self.grabando_animacion:
                             self._avisar("log", "Foto ignorada: se está grabando una animación.")
                         elif capturador is None:
@@ -521,7 +530,7 @@ class Escucha(threading.Thread):
                         else:
                             try:
                                 # El número se aparta al presionar, así fotos y animaciones siguen el orden.
-                                carpeta = Path(self.config["carpeta"]).expanduser()
+                                carpeta = cap.carpeta_actual(self.config)
                                 sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
                                 reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
                                 guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
@@ -551,6 +560,7 @@ class App:
         self.config.setdefault("fotos_solo_con_timer", True)
         self.config.setdefault("timer_seleccionado", None)
         self.config.setdefault("sonido_anim", True)
+        self.config.setdefault("sonido_sin_timer", True)
         self.config.setdefault("anim_fps", 60)
         self.config.setdefault("anim_guardar", "ambos")
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
@@ -590,7 +600,6 @@ class App:
                 "momento registrado:\n\n" + "\n".join(lineas)))
 
         self.escucha.start()
-        threading.Thread(target=self._cargar_miniaturas, daemon=True).start()
         root.protocol("WM_DELETE_WINDOW", self.cerrar)
         root.after(100, self._procesar_eventos)
         root.after(500, self._refrescar_tiempos)
@@ -657,12 +666,12 @@ class App:
         izq = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=0, width=290)
         izq.grid(row=1, column=0, sticky="ns")
         izq.grid_propagate(False)
-        izq.grid_rowconfigure(3, weight=1)
+        izq.grid_rowconfigure(4, weight=1)
         izq.grid_columnconfigure(0, weight=1)
 
         barra = ctk.CTkFrame(izq, fg_color="transparent")
-        barra.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 8))
-        boton(barra, "📁", self.abrir_fotos, "normal", width=38).pack(side="left")
+        barra.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 4))
+        boton(barra, "📁", self.elegir_carpeta, "normal", width=38).pack(side="left")
         self.lbl_carpeta_nombre = ctk.CTkLabel(barra, text="", font=fuente(13, "bold"), text_color=TEXTO,
                                                fg_color=TARJETA, corner_radius=8, height=34, anchor="w",
                                                padx=12)
@@ -670,19 +679,26 @@ class App:
         self.ins_fotos = insignia(barra, "0")
         self.ins_fotos.pack(side="left")
 
+        dueno = ctk.CTkFrame(izq, fg_color="transparent")
+        dueno.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 8))
+        self.lbl_dueno = ctk.CTkLabel(dueno, text="", font=fuente(11), text_color=TENUE, anchor="w", height=24)
+        self.lbl_dueno.pack(side="left")
+        self.btn_general = boton(dueno, "Usar general", self.usar_carpeta_general, "fantasma",
+                                 width=10, height=24, font=fuente(11))
+
         suf = ctk.CTkFrame(izq, fg_color="transparent")
-        suf.grid(row=1, column=0, sticky="ew", padx=14)
+        suf.grid(row=2, column=0, sticky="ew", padx=14)
         ctk.CTkLabel(suf, text="Sufijo", font=fuente(12), text_color=TENUE).pack(side="left", padx=(2, 8))
         self.var_sufijo = tk.StringVar(value=cap.limpiar_sufijo(self.config.get("sufijo")))
         ctk.CTkEntry(suf, textvariable=self.var_sufijo, height=32, fg_color=TARJETA, border_color=BORDE,
                      text_color=TEXTO, font=fuente(13)).pack(side="left", fill="x", expand=True)
         self.lbl_ejemplo = ctk.CTkLabel(izq, text="", font=fuente(10), text_color=TENUE, anchor="w")
-        self.lbl_ejemplo.grid(row=2, column=0, sticky="ew", padx=18, pady=(2, 8))
+        self.lbl_ejemplo.grid(row=3, column=0, sticky="ew", padx=18, pady=(2, 8))
         self.var_sufijo.trace_add("write", lambda *a: self._sufijo_cambiado())
 
         self.grilla_fotos = ctk.CTkScrollableFrame(izq, fg_color="transparent", scrollbar_button_color=BORDE,
                                                    scrollbar_button_hover_color=TENUE)
-        self.grilla_fotos.grid(row=3, column=0, sticky="nsew", padx=(8, 4), pady=(0, 8))
+        self.grilla_fotos.grid(row=4, column=0, sticky="nsew", padx=(8, 4), pady=(0, 8))
         self._sufijo_cambiado()
         self.grilla_fotos.grid_columnconfigure((0, 1), weight=1, uniform="foto")
 
@@ -696,7 +712,7 @@ class App:
 
         cab, self.ins_activos = titulo_seccion(centro, "Temporizadores", "0 activos")
         cab.grid(row=0, column=0, sticky="ew", padx=28, pady=(22, 2))
-        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla: el atajo de temporizador inicia y para la seleccionada.",
+        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla (otro clic la quita). El atajo inicia y para la seleccionada.",
                      font=fuente(12), text_color=TENUE, anchor="w").grid(row=1, column=0, sticky="ew", padx=28)
 
         self.grilla_timers = ctk.CTkScrollableFrame(centro, fg_color="transparent",
@@ -782,7 +798,7 @@ class App:
         self.seg_resolucion.set("720p" if self.config["resolucion"] == "720p" else "Nativa")
         self.seg_resolucion.pack(**pad)
 
-        ctk.CTkLabel(der, text="Carpeta", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
+        ctk.CTkLabel(der, text="Carpeta general", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
         fila = ctk.CTkFrame(der, fg_color="transparent")
         fila.pack(**pad)
         self.lbl_carpeta = ctk.CTkLabel(fila, text="", font=fuente(12), text_color=TEXTO, fg_color=TARJETA,
@@ -801,6 +817,8 @@ class App:
         interruptor("Pitido al iniciar/parar con el mando", self.var_pitido).pack(pady=5, **pad)
         self.var_sonido_anim = tk.BooleanVar(value=self.config["sonido_anim"])
         interruptor("Sonido al grabar animación", self.var_sonido_anim).pack(pady=5, **pad)
+        self.var_sonido_sin_timer = tk.BooleanVar(value=self.config["sonido_sin_timer"])
+        interruptor("Aviso si no hay temporizador", self.var_sonido_sin_timer).pack(pady=5, **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -841,6 +859,7 @@ class App:
         self.config["pitido_timers"] = self.var_pitido.get()
         self.config["fotos_solo_con_timer"] = self.var_solo_timer.get()
         self.config["sonido_anim"] = self.var_sonido_anim.get()
+        self.config["sonido_sin_timer"] = self.var_sonido_sin_timer.get()
         self._guardar()
 
     def _cambiar_salida(self, salida):
@@ -874,12 +893,30 @@ class App:
         self._sufijo_cambiado()  # actualizar el ejemplo de nombre
 
     def _mostrar_carpeta(self):
-        carpeta = self.config["carpeta"]
-        self.lbl_carpeta.configure(text=ruta_corta(carpeta, 26))
-        self.lbl_carpeta_nombre.configure(text=Path(carpeta).name or carpeta)
+        """Panel derecho: carpeta general. Barra izquierda: la que se usa ahora."""
+        self.lbl_carpeta.configure(text=ruta_corta(self.config["carpeta"], 26))
+        actual = cap.carpeta_actual(self.config)
+        self.lbl_carpeta_nombre.configure(text=actual.name or str(actual))
+        timer = self._timer(self.config.get("timer_seleccionado"))
+        propia = bool(timer and timer.get("carpeta"))
+        if propia:
+            self.lbl_dueno.configure(text=f"Carpeta de «{timer['nombre']}»", text_color=VERDE)
+            self.btn_general.pack(side="right")
+        else:
+            self.lbl_dueno.configure(text="Carpeta general", text_color=TENUE)
+            self.btn_general.pack_forget()
+        # Si cambió la carpeta en uso, cargar sus miniaturas.
+        if actual != getattr(self, "_carpeta_mostrada", None):
+            self._carpeta_mostrada = actual
+            self.miniaturas = []
+            self._dibujar_miniaturas()
+            threading.Thread(target=self._cargar_miniaturas, args=(actual,), daemon=True).start()
 
     def _timer(self, nombre):
         return next((t for t in self.config["timers"] if t["nombre"] == nombre), None)
+
+    def _en_carpeta_mostrada(self, ruta):
+        return self._carpeta_mostrada in Path(ruta).parents
 
     def _refrescar_fotos(self):
         for w in self.lista_atajos.winfo_children():
@@ -900,9 +937,10 @@ class App:
 
     def _refrescar_timers(self):
         nombres = [t["nombre"] for t in self.config["timers"]]
-        if self.config["timer_seleccionado"] not in nombres:
-            self.config["timer_seleccionado"] = nombres[0] if nombres else None
+        if self.config["timer_seleccionado"] not in nombres + [None]:
+            self.config["timer_seleccionado"] = None  # se borró el que estaba seleccionado
             self._guardar()
+            self._mostrar_carpeta()
         for w in self.grilla_timers.winfo_children():
             w.destroy()
         self.tarjetas = {}
@@ -972,9 +1010,8 @@ class App:
 
     # ------------------------------------------------------------------ miniaturas
 
-    def _cargar_miniaturas(self):
-        """Hilo: lee las fotos y animaciones más recientes de la carpeta al abrir la app."""
-        carpeta = Path(self.config["carpeta"]).expanduser()
+    def _cargar_miniaturas(self, carpeta):
+        """Hilo: lee las fotos y animaciones más recientes de la carpeta."""
         try:
             elementos = [p for p in carpeta.iterdir()
                          if p.suffix.lower() in EXTENSIONES_FOTO or p.suffix.lower() == ".avif"
@@ -1004,7 +1041,7 @@ class App:
                         lista.append((ruta, hacer_miniatura(img), None))
             except Exception:
                 continue
-        self.eventos.put(("miniaturas", lista))
+        self.eventos.put(("miniaturas", carpeta, lista))
 
     def _dibujar_miniaturas(self):
         for w in self.grilla_fotos.winfo_children():
@@ -1058,13 +1095,15 @@ class App:
                 elif tipo == "combo":
                     self._combo_grabado(evento[1])
                 elif tipo == "miniaturas":
-                    self.miniaturas = evento[1] + self.miniaturas
-                    del self.miniaturas[MAX_MINIATURAS:]
-                    self._dibujar_miniaturas()
+                    if evento[1] == self._carpeta_mostrada:  # pudo cambiar mientras cargaba
+                        self.miniaturas = evento[2] + self.miniaturas
+                        del self.miniaturas[MAX_MINIATURAS:]
+                        self._dibujar_miniaturas()
                 elif tipo == "miniatura":
-                    self.miniaturas.insert(0, (evento[1], evento[2], None))
-                    del self.miniaturas[MAX_MINIATURAS:]
-                    self._dibujar_miniaturas()
+                    if self._en_carpeta_mostrada(evento[1]):
+                        self.miniaturas.insert(0, (evento[1], evento[2], None))
+                        del self.miniaturas[MAX_MINIATURAS:]
+                        self._dibujar_miniaturas()
                 elif tipo.startswith("anim_"):
                     self._evento_animacion(tipo, evento[1:])
         except queue.Empty:
@@ -1178,18 +1217,41 @@ class App:
         self._refrescar_fotos()
 
     def cambiar_carpeta(self):
-        nueva = filedialog.askdirectory(initialdir=self.config["carpeta"], title="Carpeta para las fotos")
+        """Panel derecho: cambia la carpeta general."""
+        nueva = filedialog.askdirectory(initialdir=self.config["carpeta"], title="Carpeta general para las fotos")
         if nueva:
             self.config["carpeta"] = os.path.normpath(nueva)
-            self._mostrar_carpeta()
             self._guardar()
-            self.miniaturas = []
-            self._dibujar_miniaturas()
-            threading.Thread(target=self._cargar_miniaturas, daemon=True).start()
+            self._mostrar_carpeta()
+            self.log(f"Carpeta general: {self.config['carpeta']}")
+
+    def elegir_carpeta(self):
+        """Botón 📁: carpeta del temporizador seleccionado, o la general si no hay ninguno."""
+        timer = self._timer(self.config.get("timer_seleccionado"))
+        titulo = f"Carpeta para las fotos de «{timer['nombre']}»" if timer else "Carpeta general para las fotos"
+        nueva = filedialog.askdirectory(initialdir=str(cap.carpeta_actual(self.config)), title=titulo)
+        if not nueva:
+            return
+        nueva = os.path.normpath(nueva)
+        if timer:
+            timer["carpeta"] = nueva
+            self.log(f"Las fotos de «{timer['nombre']}» se guardarán en {nueva}")
+        else:
+            self.config["carpeta"] = nueva
+            self.log(f"Carpeta general: {nueva}")
+        self._guardar()
+        self._mostrar_carpeta()
+
+    def usar_carpeta_general(self):
+        timer = self._timer(self.config.get("timer_seleccionado"))
+        if timer and timer.pop("carpeta", None):
+            self._guardar()
+            self._mostrar_carpeta()
+            self.log(f"«{timer['nombre']}» vuelve a usar la carpeta general.")
 
     def abrir_fotos(self):
-        carpeta = os.path.expanduser(self.config["carpeta"])
-        os.makedirs(carpeta, exist_ok=True)
+        carpeta = cap.carpeta_actual(self.config)
+        carpeta.mkdir(parents=True, exist_ok=True)
         abrir(carpeta)
 
     # ------------------------------------------------------------------ timers
@@ -1219,11 +1281,16 @@ class App:
         self.seleccionar_timer(nombre)
         self._alternar_timer(nombre, datetime.now())
 
-    def seleccionar_timer(self, nombre):
-        if self.config["timer_seleccionado"] != nombre:
-            self.config["timer_seleccionado"] = nombre
-            self._guardar()
-            self._refrescar_tiempos(reprogramar=False)
+    def seleccionar_timer(self, nombre, alternar=False):
+        """alternar=True (clic en la tarjeta): si ya estaba seleccionado, lo deselecciona."""
+        if self.config["timer_seleccionado"] == nombre:
+            if not alternar:
+                return
+            nombre = None
+        self.config["timer_seleccionado"] = nombre
+        self._guardar()
+        self._refrescar_tiempos(reprogramar=False)
+        self._mostrar_carpeta()
 
     def _timer_global(self, momento):
         """Atajo global: para el seleccionado si corre; si no, para los demás e inicia el seleccionado."""
@@ -1371,7 +1438,7 @@ class App:
             else:
                 extra = " (se llegó al límite de memoria)" if motivo == "límite de memoria" else ""
                 self.log(f"■ {carpeta.name}: {total} cuadros grabados{extra}. Guardando…")
-            if miniatura is not None and total:
+            if miniatura is not None and total and self._en_carpeta_mostrada(carpeta):
                 img = marcar_animacion(hacer_miniatura(miniatura), total)
                 self.miniaturas.insert(0, (carpeta, img, total))
                 del self.miniaturas[MAX_MINIATURAS:]

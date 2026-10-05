@@ -15,7 +15,7 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide en tres columnas:
 
-- **Izquierda:** el **sufijo** de los archivos y las fotos recientes en miniatura. Clic en una para abrirla. Las animaciones aparecen como una sola miniatura (su primer cuadro) con la etiqueta ▶ y el número de cuadros.
+- **Izquierda:** la carpeta en uso (botón 📁 para elegirla), el **sufijo** de los archivos y las fotos recientes en miniatura. Clic en una para abrirla. Las animaciones aparecen como una sola miniatura (su primer cuadro) con la etiqueta ▶ y el número de cuadros.
 - **Centro:** una tarjeta por temporizador, con el tiempo en grande y los totales de hoy, semana y total.
 - **Derecha:** atajos de foto, formato, carpeta, sonidos y registro de actividad.
 
@@ -31,8 +31,18 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 - **Atajo de temporizador:** es uno solo para todos y se asigna en la columna derecha. Inicia o para el temporizador **seleccionado**.
 - **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
-- **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Se apaga con el interruptor en "Atajos de foto".
+- **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Si lo intentas sin temporizador, suena el aviso de Windows ("Aviso si no hay temporizador", en Sonidos). Se apaga con el interruptor en "Atajos de foto".
 - **Cancelar:** aparece en la tarjeta mientras corre. Descarta la sesión actual como si nunca hubiera pasado, por ejemplo si lo dejaste corriendo por accidente. Pide confirmación y no toca las sesiones anteriores.
+
+## Carpetas por juego
+
+- El botón **📁** (arriba a la izquierda) elige dónde se guardan las fotos:
+  - Con un temporizador **seleccionado**: esa carpeta es **solo para ese temporizador**. Debajo dice "Carpeta de «Silksong»".
+  - Sin temporizador seleccionado: cambia la **carpeta general**.
+- **Usar general:** aparece cuando el temporizador seleccionado tiene carpeta propia. La quita y vuelve a la general.
+- Para quitar la selección de un temporizador, haz clic otra vez en su tarjeta.
+- Las miniaturas muestran la carpeta en uso, y cada carpeta lleva su propia numeración.
+- "Abrir fotos" (arriba a la derecha) abre la carpeta en uso. La **carpeta general** también se puede cambiar en la columna derecha.
 
 ## Nombres de archivo
 
