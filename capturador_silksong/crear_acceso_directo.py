@@ -17,7 +17,7 @@ from capturador import APP_ID  # noqa: E402
 NOMBRE = "Capturador Silksong.lnk"
 
 
-def crear(ruta, pythonw):
+def crear(ruta, pythonw, argumentos=""):
     import pythoncom
     from win32com.propsys import propsys, pscon
     from win32com.shell import shell
@@ -25,7 +25,7 @@ def crear(ruta, pythonw):
     link = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER,
                                       shell.IID_IShellLink)
     link.SetPath(str(pythonw))
-    link.SetArguments(f'"{CARPETA / "app.pyw"}"')
+    link.SetArguments(f'"{CARPETA / "app.pyw"}" {argumentos}'.strip())
     link.SetWorkingDirectory(str(CARPETA))
     link.SetIconLocation(str(CARPETA / "icono.ico"), 0)
     link.SetDescription("Fotos y temporizadores con el mando")

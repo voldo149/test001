@@ -71,6 +71,7 @@ Clic en la miniatura de una animación (la que tiene la etiqueta ▶):
 - Vista previa del cuadro, más las barras **Inicio** y **Final** para quitar los intentos fallidos y las esperas. Muestra cuántos cuadros y cuántos segundos quedan.
 - Botones **−** y **+** a los lados de cada barra: un toque mueve un cuadro. Mantenido, después de 0.3 s avanza solo y va acelerando. Sirve sin mouse, por ejemplo con el touchpad.
 - Los cuadros que borres a mano de la carpeta tampoco se usan, así puedes quitar partes del medio.
+- **Guardar cuadro como foto:** guarda el cuadro que estás viendo como foto suelta (`doric-005.webp`), con el siguiente número. Es una copia exacta, sin volver a comprimir. Sirve para sacar la imagen perfecta de una animación.
 - **Crear AVIF** guarda `doric-anim_003.avif` dentro de la carpeta, en un proceso aparte. Si ya existía, se reemplaza, así puedes recortar otra vez. La miniatura muestra "AVIF ✓".
 
 ## Animaciones (60 fps)
@@ -125,6 +126,20 @@ Medido con una captura real del juego a 1080p:
 - **Cierras la ventana:** los temporizadores se detienen y se guardan.
 - **Cierre inesperado o apagón:** cada 30 s se anota qué está corriendo. Al abrir la app otra vez, la sesión se guarda hasta ese momento y te avisa cuánto recuperó.
 - **La PC se suspende:** al despertar, los temporizadores se detienen en el momento en que se suspendió, así no cuentan el tiempo dormida.
+
+## Avisos en pantalla
+
+Abajo a la izquierda aparece un aviso pequeño: **FOTO** doric-007, **REC** 0:03 (mientras graba), **LISTO** al terminar una animación, **PAUSA** / **SIGUE**, **INICIO** / **FIN** del temporizador con el mando, y **SIN TEMPORIZADOR** si intentas capturar sin uno.
+- **No sale en las capturas:** Windows lo excluye de cualquier captura (también de Greenshot u OBS), así que puedes tomar otra foto mientras se ve. Requiere Windows 10 versión 2004 o más nuevo. Si no se puede, el aviso se desactiva solo.
+- No toma el foco ni recibe clics, así que el juego no se pausa.
+- Se ve encima del juego en **pantalla completa sin bordes**. En pantalla completa exclusiva Windows no deja dibujar encima.
+- Se apaga en Sonidos → "Avisos en pantalla".
+
+## Bandeja del sistema e inicio con Windows
+
+- La app pone su icono junto al reloj. Doble clic: abrir. Clic derecho: **Abrir** / **Salir**. Al pasar el mouse muestra el temporizador en marcha.
+- **Iniciar con Windows (en la bandeja)**, en la columna derecha: al prender la PC la app se abre escondida en la bandeja, lista para el mando.
+- Si la abres otra vez (por ejemplo desde la barra de tareas) mientras ya está en la bandeja, se muestra la que ya estaba abierta en vez de abrir otra copia.
 
 ## Para que no se pause ni se ponga lento
 

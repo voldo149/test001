@@ -10,6 +10,8 @@ import ctypes
 import multiprocessing
 import os
 import queue
+import shutil
+import sys
 import threading
 import time
 import traceback
@@ -24,8 +26,10 @@ import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont
 
 import animacion
+import bandeja
 import capturador as cap
 import trabajador
+from aviso_pantalla import AvisoPantalla
 from tiempos import RegistroTiempos, formato_duracion
 
 CARPETA = cap.CARPETA_SCRIPT
@@ -384,6 +388,7 @@ class DialogoRecorte(ctk.CTkToplevel):
         self.fps = int(animacion.info_de(self.carpeta).get("fps_animacion", 60))
         self._pendiente = None
         self._imagen = None
+        self._indice_mostrado = 0
         self.title(f"Recortar {self.carpeta.name}")
         self.resizable(False, False)
         self.transient(app.root)
@@ -413,6 +418,7 @@ class DialogoRecorte(ctk.CTkToplevel):
         fila = ctk.CTkFrame(cuerpo, fg_color="transparent")
         fila.pack(fill="x", pady=(14, 0))
         boton(fila, "Abrir carpeta", lambda: abrir(self.carpeta), "fantasma", width=10).pack(side="left")
+        boton(fila, "Guardar cuadro como foto", self._guardar_foto, "azul", width=10).pack(side="left", padx=(6, 0))
         boton(fila, "Crear AVIF", self._crear, "verde", width=130).pack(side="right")
         boton(fila, "Cancelar", self.destroy, "normal", width=100).pack(side="right", padx=(0, 8))
 
@@ -504,7 +510,12 @@ class DialogoRecorte(ctk.CTkToplevel):
         extra = "  ·  se reemplazará el AVIF que ya existe" if self._destino().exists() else ""
         self.lbl_resumen.configure(text=f"{n} cuadros · {n / self.fps:.2f} s{extra}")
 
+    def _guardar_foto(self):
+        if self.cuadros:
+            self.app.guardar_cuadro_como_foto(self.carpeta, self.cuadros[self._indice_mostrado])
+
     def _mostrar(self, indice):
+        self._indice_mostrado = indice
         if not self.cuadros:
             self.vista.configure(text="No hay cuadros en esta carpeta.")
             return
@@ -581,7 +592,8 @@ class Escucha(threading.Thread):
         return bool(self.grabadores) or cola > 0
 
     def _sin_timer(self):
-        """Aviso sonoro: se intentó capturar sin temporizador en marcha."""
+        """Aviso sonoro y en pantalla: se intentó capturar sin temporizador en marcha."""
+        self._avisar("aviso", "SIN TEMPORIZADOR", "inicia uno para capturar")
         if self.config.get("sonido_sin_timer", True):
             cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
 
@@ -701,6 +713,7 @@ class Escucha(threading.Thread):
                                 reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
                                 guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
                                 self._avisar("captura", datetime.now())
+                                self._avisar("aviso", "FOTO", f"{sufijo}-{reserva[2]:03d}")
                             except Exception as e:
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
@@ -729,6 +742,7 @@ class App:
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("sonido_sin_timer", True)
         self.config.setdefault("pausa_auto_min", 5)
+        self.config.setdefault("avisos_pantalla", True)
         self._ultima_foto = {}  # temporizador -> última foto/animación de la sesión
         self.config.setdefault("anim_fps", 60)
         if self.config.get("version_config", 1) < 2:
@@ -749,6 +763,10 @@ class App:
         self._dialogo_grabar = None
         self.tarjetas = {}
         self.miniaturas = []  # [(ruta, PIL.Image)] más reciente primero
+        # Se crean antes que la interfaz porque el primer refresco ya los usa.
+        self.aviso = AvisoPantalla(root)
+        self.bandeja = bandeja.Bandeja(self.eventos, TITULO) if os.name == "nt" else None
+        self._evento_mostrar = crear_evento_mostrar()
 
         root.title(TITULO)
         ancho = min(1560, root.winfo_screenwidth() - 80)
@@ -771,6 +789,12 @@ class App:
                 root, "Tiempo recuperado",
                 "La app se cerró sin detener estos temporizadores. Se guardaron hasta el último "
                 "momento registrado:\n\n" + "\n".join(lineas)))
+
+        if not self.aviso.disponible:
+            self.log(f"Avisos en pantalla desactivados: {self.aviso.motivo}")
+        if self.bandeja is not None and not self.bandeja.disponible:
+            self.log(f"Sin icono en la bandeja: {self.bandeja.error}")
+            self.bandeja = None
 
         self.escucha.start()
         root.protocol("WM_DELETE_WINDOW", self.cerrar)
@@ -1004,6 +1028,13 @@ class App:
         interruptor("Sonido al grabar animación", self.var_sonido_anim).pack(pady=5, **pad)
         self.var_sonido_sin_timer = tk.BooleanVar(value=self.config["sonido_sin_timer"])
         interruptor("Aviso si no hay temporizador", self.var_sonido_sin_timer).pack(pady=5, **pad)
+        self.var_avisos = tk.BooleanVar(value=self.config["avisos_pantalla"])
+        interruptor("Avisos en pantalla (abajo a la izq.)", self.var_avisos).pack(pady=5, **pad)
+        self.var_inicio = tk.BooleanVar(value=bandeja.inicio_con_windows())
+        ctk.CTkSwitch(der, text="Iniciar con Windows (en la bandeja)", variable=self.var_inicio,
+                      command=self._cambiar_inicio_windows, font=fuente(13), text_color=TEXTO, fg_color=BORDE,
+                      progress_color=VERDE_BORDE, button_color=TEXTO,
+                      button_hover_color="#ffffff").pack(pady=5, **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1045,7 +1076,25 @@ class App:
         self.config["fotos_solo_con_timer"] = self.var_solo_timer.get()
         self.config["sonido_anim"] = self.var_sonido_anim.get()
         self.config["sonido_sin_timer"] = self.var_sonido_sin_timer.get()
+        self.config["avisos_pantalla"] = self.var_avisos.get()
+        if not self.config["avisos_pantalla"]:
+            self.aviso.ocultar()
         self._guardar()
+
+    def _cambiar_inicio_windows(self):
+        activar = self.var_inicio.get()
+        try:
+            bandeja.activar_inicio_con_windows(activar)
+            self.log("Se abrirá al iniciar Windows, en la bandeja junto al reloj." if activar
+                     else "Ya no se abrirá al iniciar Windows.")
+        except Exception as e:
+            self.var_inicio.set(not activar)
+            self.log(f"[!] No se pudo cambiar el inicio con Windows: {e}")
+
+    def mostrar_ventana(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
 
     def _cambiar_pausa(self, minutos):
         self.config["pausa_auto_min"] = minutos
@@ -1200,6 +1249,8 @@ class App:
             titulo = "● REC — " + titulo
         if self.root.title() != titulo:
             self.root.title(titulo)
+            if self.bandeja:
+                self.bandeja.titulo(titulo)
         if reprogramar:
             self.root.after(500, self._refrescar_tiempos)
 
@@ -1214,6 +1265,7 @@ class App:
             # (por ejemplo «escribir») nunca se pausa solo.
             if ultima and (ahora - ultima).total_seconds() > minutos * 60:
                 self.registro.pausar(nombre, ultima)
+                self._avisar_pantalla("PAUSA", f"{nombre} · {minutos} min sin fotos", TENUE, 4)
                 self.log(f"⏸ '{nombre}' en pausa: {minutos} min sin fotos. Se contó hasta la última foto; "
                          "la próxima foto lo reanuda.")
 
@@ -1222,6 +1274,7 @@ class App:
         for nombre in list(self.registro.pausados):
             self.registro.reanudar(nombre, momento)
             self.log(f"▶ '{nombre}' reanudado con la foto")
+            self._avisar_pantalla("SIGUE", nombre, VERDE, 1.5)
         for nombre in self.registro.en_curso:
             self._ultima_foto[nombre] = momento
         self._refrescar_tiempos(reprogramar=False)
@@ -1305,6 +1358,8 @@ class App:
     # ------------------------------------------------------------------ eventos
 
     def _procesar_eventos(self):
+        if self._evento_mostrar and ctypes.windll.kernel32.WaitForSingleObject(self._evento_mostrar, 0) == 0:
+            self.mostrar_ventana()  # alguien abrió la app otra vez: mostrar esta
         try:
             while True:
                 evento = self.eventos.get_nowait()
@@ -1324,6 +1379,14 @@ class App:
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,
                                                   fg_color=ROJO_FONDO)
                     self.log(f"[!] {evento[1]}")
+                elif tipo == "aviso":
+                    titulo, texto = evento[1], evento[2]
+                    self._avisar_pantalla(titulo, texto, ROJO if titulo == "SIN TEMPORIZADOR" else VERDE)
+                elif tipo == "bandeja":
+                    if evento[1] == "abrir":
+                        self.mostrar_ventana()
+                    else:
+                        self.cerrar()
                 elif tipo == "captura":
                     self._captura(evento[1])
                 elif tipo == "timer_global":
@@ -1550,6 +1613,29 @@ class App:
                     self._ultima_foto.pop(otro, None)
         self._alternar_timer(nombre, momento, desde_mando=True)
 
+    def guardar_cuadro_como_foto(self, carpeta, cuadro):
+        """Copia un cuadro de la animación como foto suelta, con el siguiente número."""
+        carpeta, cuadro = Path(carpeta), Path(cuadro)
+        base = carpeta.parent
+        sufijo = carpeta.name.rsplit("-anim_", 1)[0] if "-anim_" in carpeta.name else \
+            cap.limpiar_sufijo(self.config.get("sufijo"))
+        destino = base / f"{sufijo}-{cap.reservar_numero(base, sufijo):03d}{cuadro.suffix}"
+        try:
+            shutil.copy2(cuadro, destino)  # copia exacta: sin volver a comprimir
+        except OSError as e:
+            self.log(f"[!] No se pudo guardar el cuadro: {e}")
+            return
+        self.log(f"[foto] {destino.name} ← cuadro {cuadro.stem.rsplit('-', 1)[-1]} de {carpeta.name}")
+        self._avisar_pantalla("FOTO", destino.stem, VERDE)
+        if self._en_carpeta_mostrada(destino):
+            try:
+                with Image.open(destino) as img:
+                    self.miniaturas.insert(0, (destino, hacer_miniatura(img.convert("RGB")), None))
+                del self.miniaturas[MAX_MINIATURAS:]
+                self._dibujar_miniaturas()
+            except Exception:
+                pass
+
     def crear_avif(self, carpeta, rutas, destino, fps):
         modo = self.config["prioridad"]
         self.log(f"Creando el AVIF de {carpeta.name} con {len(rutas)} cuadros…")
@@ -1651,6 +1737,11 @@ class App:
             self.log(f"■ '{nombre}' detenido: {formato_duracion(duracion.total_seconds())}")
         if desde_mando and self.config["pitido_timers"]:
             pitido(corriendo)
+        if desde_mando:
+            if corriendo:
+                self._avisar_pantalla("INICIO", nombre, VERDE)
+            else:
+                self._avisar_pantalla("FIN", f"{nombre} · {formato_duracion(duracion.total_seconds())}", TENUE, 2.5)
         self._refrescar_tiempos(reprogramar=False)
 
     def abrir_historial(self):
@@ -1672,6 +1763,9 @@ class App:
             return
         self.escucha.detener()
         self.escucha.join(timeout=3)
+        if self.bandeja:
+            self.bandeja.cerrar()
+        self.aviso.ocultar()
         self.root.destroy()
 
     # ------------------------------------------------------------------ sufijo y animaciones
@@ -1690,6 +1784,10 @@ class App:
             partes.append(f"captura {m['captura_ms_mediana']} ms (p95 {m['captura_ms_p95']})")
         return "   ↳ " + " · ".join(partes)
 
+    def _avisar_pantalla(self, titulo, texto="", color=TEXTO, segundos=1.8):
+        if self.config.get("avisos_pantalla", True):
+            self.aviso.mostrar(titulo, texto, color, segundos)
+
     def _sufijo_cambiado(self):
         sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
         ext = cap.extension(self.config.get("formato"))
@@ -1707,15 +1805,19 @@ class App:
             self.pastilla_rec.configure(text="●  REC 0:00")
             self.pastilla_rec.pack(side="left", padx=(0, 10), before=self.pastilla_mando)
             self.log(f"● Grabando animación en {datos[0].name}…")
+            self._avisar_pantalla("REC", "0:00", ROJO, None)
             if self.config["sonido_anim"]:
                 sonido_anim(True)
         elif tipo == "anim_progreso":
             cuadros, segundos = datos
             self.pastilla_rec.configure(text=f"●  REC {int(segundos) // 60}:{int(segundos) % 60:02d} · {cuadros}")
+            if self.config.get("avisos_pantalla", True):
+                self.aviso.actualizar_texto(f"{int(segundos) // 60}:{int(segundos) % 60:02d}")
         elif tipo == "anim_fin":
             carpeta, miniatura, total, motivo, medidas = datos
             self._grabando_desde = None
             self.pastilla_rec.pack_forget()
+            self._avisar_pantalla("LISTO", f"{carpeta.name} · {total / 60:.1f} s", VERDE, 2.5)
             if self.config["sonido_anim"]:
                 sonido_anim(False)
             if motivo.startswith("error"):
@@ -1754,6 +1856,16 @@ class App:
 _mutex = None
 
 
+NOMBRE_EVENTO_MOSTRAR = "CapturadorSilksong_Mostrar"
+
+
+def crear_evento_mostrar():
+    """Evento de Windows con el que una segunda copia le pide a esta que se muestre."""
+    if os.name != "nt":
+        return None
+    return ctypes.windll.kernel32.CreateEventW(None, False, False, NOMBRE_EVENTO_MOSTRAR)
+
+
 def ya_esta_abierta():
     """Evita dos copias abiertas (tomarían cada foto dos veces)."""
     global _mutex
@@ -1774,8 +1886,10 @@ def main():
     ctk.set_appearance_mode("dark")
     root = ctk.CTk()
     if ya_esta_abierta():
-        root.withdraw()
-        messagebox.showinfo(TITULO, "La app ya está abierta (revisa la barra de tareas).")
+        # Ya hay una copia (quizá escondida en la bandeja): pedirle que se muestre y salir.
+        evento = crear_evento_mostrar()
+        if evento:
+            ctypes.windll.kernel32.SetEvent(evento)
         root.destroy()
         return
 
@@ -1785,7 +1899,12 @@ def main():
     root.report_callback_exception = al_fallar
 
     try:
-        App(root)
+        app = App(root)
+        if bandeja.ARG_BANDEJA in sys.argv:  # abierta al iniciar Windows: quedarse en la bandeja
+            if app.bandeja and app.bandeja.disponible:
+                root.withdraw()
+            else:
+                root.iconify()
     except Exception as e:
         registrar_error(traceback.format_exc())
         messagebox.showerror(TITULO, f"No se pudo iniciar:\n{e}\n\nDetalles en {LOG_ERRORES.name}")
