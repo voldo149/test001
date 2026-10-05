@@ -22,6 +22,7 @@ GIF pero muchísimo más ligero: AV1 aprovecha lo que se repite entre cuadros).
 """
 
 import ctypes
+import json
 import os
 import queue
 import re
@@ -193,6 +194,22 @@ def duraciones(n, fps):
     return [round((i + 1) * 1000 / fps) - round(i * 1000 / fps) for i in range(n)]
 
 
+EXTENSIONES_CUADRO = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def cuadros_de(carpeta):
+    """Cuadros que hay ahora en la carpeta de una animación, en orden (respeta los que se borren a mano)."""
+    return sorted(p for p in Path(carpeta).iterdir() if p.suffix.lower() in EXTENSIONES_CUADRO)
+
+
+def info_de(carpeta):
+    """Lo que se anotó al grabar (info.json); {} si no existe."""
+    try:
+        return json.loads((Path(carpeta) / "info.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def crear_avif(rutas, destino, fps, calidad=80, hilos=None):
     """Une los cuadros en un AVIF animado. Escribe a un temporal y luego renombra."""
     with Image.open(rutas[0]) as img:
@@ -238,6 +255,12 @@ class GrabadorAnimacion:
         self._futuros = []
         self._errores_envio = []
         self._limitador = Limitador(lambda: HILOS.get(self._modo(), HILOS["juego"]))
+        # Mediciones para diagnosticar (se guardan en info.json de la animación).
+        self._intervalos = []   # ms entre cuadros nuevos del juego
+        self._costos = []       # ms que tardó tomar cada cuadro nuevo
+        self._descartados = 0   # llegaron antes de 1/60 s (el juego va a más de 60 fps)
+        self._absorbidos = 0    # detectados tarde y dejados en su lugar
+        self.duracion_real = 0.0
 
     # ------------------------------------------------------------------ control
 
@@ -314,6 +337,36 @@ class GrabadorAnimacion:
             self._bytes -= tam
             self._hechos += 1
 
+    # ------------------------------------------------------------------ mediciones
+
+    def medidas(self):
+        """Resumen para diagnosticar fluidez (lo que se ve en info.json y en Actividad)."""
+        def mediana(v):
+            v = sorted(v)
+            return round(v[len(v) // 2], 1) if v else None
+
+        def p95(v):
+            v = sorted(v)
+            return round(v[int(len(v) * 0.95)], 1) if v else None
+        intervalo = mediana(self._intervalos)
+        return {
+            "fps_animacion": self.fps,
+            "cuadros": self.total,
+            "unicos": self._unicos,
+            "repetidos": self.total - self._unicos,
+            "duracion_real_s": round(self.duracion_real, 2),
+            "duracion_animacion_s": round(self.total / self.fps, 2),
+            "fps_del_juego": round(1000 / intervalo, 1) if intervalo else None,
+            "descartados_por_llegar_antes": self._descartados,
+            "detectados_tarde_absorbidos": self._absorbidos,
+            "captura_ms_mediana": mediana(self._costos),
+            "captura_ms_p95": p95(self._costos),
+            "monitor_hz": cap.frecuencia_monitor(),
+            "resolucion": self.resolucion,
+            "formato": self.ext,
+            "prioridad": self._modo(),
+        }
+
     # ------------------------------------------------------------------ trabajo
 
     def _trabajar(self):
@@ -348,7 +401,13 @@ class GrabadorAnimacion:
                 miniatura = cap.Capturador.a_imagen(primero)
             except Exception:
                 pass
-        self.avisar("anim_fin", self.carpeta, miniatura, self.total, motivo)
+        medidas = self.medidas()
+        if self.total:
+            try:
+                (self.carpeta / "info.json").write_text(json.dumps(medidas, indent=2), encoding="utf-8")
+            except OSError:
+                pass
+        self.avisar("anim_fin", self.carpeta, miniatura, self.total, motivo, medidas)
 
         # Esperar a que los procesos terminen, avisando el avance.
         copiador.join()
@@ -440,6 +499,7 @@ class GrabadorAnimacion:
 
             while not self._parar.is_set():
                 if por_eventos:
+                    antes = time.perf_counter()
                     datos = capt.fotograma()  # None si el juego no mostró un cuadro nuevo
                     ahora = time.perf_counter()
                     if datos is None:
@@ -451,6 +511,8 @@ class GrabadorAnimacion:
                             t_ref += (k - 1) * dt
                         time.sleep(0.001)
                     else:
+                        self._costos.append((ahora - antes) * 1000)
+                        self._intervalos.append((ahora - t_ant) * 1000)
                         k = round((ahora - t_ref) / dt)
                         parejo = 0.95 * dt < ritmo < 1.05 * dt  # ritmo de antes de este cuadro
                         ritmo = 0.9 * ritmo + 0.1 * (ahora - t_ant)
@@ -460,6 +522,9 @@ class GrabadorAnimacion:
                             # casi siempre es uno detectado tarde, no uno perdido. Se deja en
                             # su lugar; si de verdad faltó uno, el siguiente lo corrige solo.
                             k = 1
+                            self._absorbidos += 1
+                        if k <= 0:
+                            self._descartados += 1
                         if k >= 1:  # k == 0: llegó antes de tiempo (monitor a más de 60 Hz)
                             for _ in range(k - 1):
                                 emitir(None)
@@ -492,6 +557,7 @@ class GrabadorAnimacion:
                 k = round((time.perf_counter() - t_ref) / dt)
                 for _ in range(max(0, k - 1)):
                     emitir(None)
+            self.duracion_real = time.perf_counter() - t0
         except Exception as e:
             motivo = f"error: {e}"
 

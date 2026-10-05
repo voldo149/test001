@@ -60,9 +60,16 @@ doric-004.webp
 El número se aparta en el momento en que presionas el botón, así se respeta el orden aunque una animación todavía se esté guardando.
 
 Las animaciones, según **Guardar como**:
-- **Ambos** (por defecto): la carpeta con todos los cuadros sueltos y el `.avif` animado adentro. Los cuadros quedan como respaldo.
+- **Cuadros** (por defecto): solo la carpeta de cuadros. Después haces clic en su miniatura para **recortarla** y crear el AVIF (ver abajo).
+- **Ambos:** la carpeta de cuadros y el `.avif` animado, creado en cuanto termina de grabar.
 - **AVIF animado:** solo el archivo `doric-anim_003.avif`, junto a las fotos.
-- **Cuadros:** solo la carpeta de cuadros.
+
+## Recortar y crear el AVIF
+
+Clic en la miniatura de una animación (la que tiene la etiqueta ▶):
+- Vista previa del cuadro, más las barras **Inicio** y **Final** para quitar los intentos fallidos y las esperas. Muestra cuántos cuadros y cuántos segundos quedan.
+- Los cuadros que borres a mano de la carpeta tampoco se usan, así puedes quitar partes del medio.
+- **Crear AVIF** guarda `doric-anim_003.avif` dentro de la carpeta, en un proceso aparte. Si ya existía, se reemplaza, así puedes recortar otra vez. La miniatura muestra "AVIF ✓".
 
 ## Animaciones (60 fps)
 
@@ -73,6 +80,8 @@ Las animaciones, según **Guardar como**:
 - En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
+- **Diagnóstico:** al terminar, Actividad muestra un resumen (por ejemplo `2.05 s de animación para 2.03 s reales · juego ≈ 143 fps · monitor 144 Hz · 12 repetidos · 141 descartados · captura 1.4 ms`) y se guarda completo en `info.json` dentro de la carpeta.
+- **Si se ve con tirones:** casi siempre es porque el juego va a más de 60 fps (monitor de 120/144 Hz). Al pasarlo a 60, cada cuadro de la animación avanza 2 o 3 cuadros del juego de forma desigual. Limita el juego a 60 fps mientras grabas: en las opciones del juego, en el panel de NVIDIA/AMD ("Velocidad máxima de fotogramas" para Silksong) o poniendo el monitor a 60 Hz. Revisa también el AVIF en Chrome o Edge (arrastra el archivo al navegador), porque algunos visores reproducen las animaciones más lento.
 
 ## Animaciones para la guía: AVIF animado
 

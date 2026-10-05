@@ -365,6 +365,126 @@ class TarjetaTimer(ctk.CTkFrame):
             self._poner(clave, self.totales[clave], text=valor)
 
 
+class DialogoRecorte(ctk.CTkToplevel):
+    """Elegir dónde empieza y termina una animación y crear su AVIF con esos cuadros."""
+
+    TAM_VISTA = (640, 360)
+
+    def __init__(self, app, carpeta):
+        super().__init__(app.root, fg_color=PANEL)
+        self.app = app
+        self.carpeta = Path(carpeta)
+        self.cuadros = animacion.cuadros_de(self.carpeta)
+        self.fps = int(animacion.info_de(self.carpeta).get("fps_animacion", 60))
+        self._pendiente = None
+        self._imagen = None
+        self.title(f"Recortar {self.carpeta.name}")
+        self.resizable(False, False)
+        self.transient(app.root)
+        poner_icono(self)
+
+        cuerpo = ctk.CTkFrame(self, fg_color="transparent")
+        cuerpo.pack(padx=22, pady=18)
+        ctk.CTkLabel(cuerpo, text=self.carpeta.name, font=fuente(16, "bold"), text_color=TEXTO).pack(anchor="w")
+        ctk.CTkLabel(cuerpo, text="Mueve el inicio y el final para quitar intentos fallidos y esperas. "
+                                  "Los cuadros que borres de la carpeta tampoco se usan.",
+                     font=fuente(12), text_color=TENUE, wraplength=640, justify="left").pack(anchor="w", pady=(2, 10))
+
+        self.vista = ctk.CTkLabel(cuerpo, text="", width=self.TAM_VISTA[0], height=self.TAM_VISTA[1],
+                                  fg_color=TARJETA, corner_radius=8)
+        self.vista.pack()
+
+        ultimo = max(len(self.cuadros) - 1, 0)
+        self.var_inicio = tk.IntVar(value=0)
+        self.var_fin = tk.IntVar(value=ultimo)
+        self.lbl_inicio = self._fila(cuerpo, "Inicio", self.var_inicio, ultimo, lambda v: self._mover("inicio", v))
+        self.lbl_fin = self._fila(cuerpo, "Final", self.var_fin, ultimo, lambda v: self._mover("fin", v))
+
+        self.lbl_resumen = ctk.CTkLabel(cuerpo, text="", font=fuente(13, "bold"), text_color=VERDE, anchor="w")
+        self.lbl_resumen.pack(fill="x", pady=(10, 0))
+
+        fila = ctk.CTkFrame(cuerpo, fg_color="transparent")
+        fila.pack(fill="x", pady=(14, 0))
+        boton(fila, "Abrir carpeta", lambda: abrir(self.carpeta), "fantasma", width=10).pack(side="left")
+        boton(fila, "Crear AVIF", self._crear, "verde", width=130).pack(side="right")
+        boton(fila, "Cancelar", self.destroy, "normal", width=100).pack(side="right", padx=(0, 8))
+
+        self._actualizar_textos()
+        self._mostrar(0)
+        self.after(30, self._centrar)
+
+    def _fila(self, padre, texto, var, maximo, al_mover):
+        fila = ctk.CTkFrame(padre, fg_color="transparent")
+        fila.pack(fill="x", pady=(10, 0))
+        ctk.CTkLabel(fila, text=texto, font=fuente(12), text_color=TENUE, width=50, anchor="w").pack(side="left")
+        ctk.CTkSlider(fila, from_=0, to=max(maximo, 1), number_of_steps=max(maximo, 1), variable=var,
+                      command=al_mover, progress_color=VERDE_BORDE, button_color=VERDE,
+                      button_hover_color=VERDE_CLARO, fg_color=BORDE).pack(side="left", fill="x", expand=True, padx=8)
+        etiqueta = ctk.CTkLabel(fila, text="", font=fuente(12), text_color=TEXTO, width=150, anchor="e")
+        etiqueta.pack(side="left")
+        return etiqueta
+
+    def _centrar(self):
+        self.update_idletasks()
+        r = self.app.root
+        x = r.winfo_rootx() + (r.winfo_width() - self.winfo_width()) // 2
+        y = r.winfo_rooty() + (r.winfo_height() - self.winfo_height()) // 3
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def _mover(self, cual, valor):
+        inicio, fin = self.var_inicio.get(), self.var_fin.get()
+        if inicio > fin:  # que el inicio nunca pase al final
+            if cual == "inicio":
+                self.var_fin.set(inicio)
+            else:
+                self.var_inicio.set(fin)
+        self._actualizar_textos()
+        indice = self.var_inicio.get() if cual == "inicio" else self.var_fin.get()
+        # No decodificar cada posición mientras se arrastra: esperar a que se detenga un momento.
+        if self._pendiente:
+            self.after_cancel(self._pendiente)
+        self._pendiente = self.after(60, lambda: self._mostrar(indice))
+
+    def _texto_cuadro(self, i):
+        return f"cuadro {i + 1} · {i / self.fps:.2f} s"
+
+    def _actualizar_textos(self):
+        inicio, fin = self.var_inicio.get(), self.var_fin.get()
+        self.lbl_inicio.configure(text=self._texto_cuadro(inicio))
+        self.lbl_fin.configure(text=self._texto_cuadro(fin))
+        n = fin - inicio + 1 if self.cuadros else 0
+        extra = "  ·  se reemplazará el AVIF que ya existe" if self._destino().exists() else ""
+        self.lbl_resumen.configure(text=f"{n} cuadros · {n / self.fps:.2f} s{extra}")
+
+    def _mostrar(self, indice):
+        if not self.cuadros:
+            self.vista.configure(text="No hay cuadros en esta carpeta.")
+            return
+        try:
+            with Image.open(self.cuadros[indice]) as img:
+                img.draft("RGB", self.TAM_VISTA)
+                vista = img.convert("RGB")
+            vista.thumbnail(self.TAM_VISTA)
+            self._imagen = ctk.CTkImage(vista, size=vista.size)
+            self.vista.configure(image=self._imagen, text="")
+        except Exception as e:
+            self.vista.configure(text=f"No se pudo abrir el cuadro: {e}")
+
+    def _destino(self):
+        return self.carpeta / f"{self.carpeta.name}.avif"
+
+    def _crear(self):
+        if not self.cuadros:
+            return
+        rutas = self.cuadros[self.var_inicio.get():self.var_fin.get() + 1]
+        self.app.crear_avif(self.carpeta, rutas, self._destino(), self.fps)
+        self.destroy()
+
+
 # --------------------------------------------------------------------------
 # Hilo que escucha el mando
 # --------------------------------------------------------------------------
@@ -562,7 +682,11 @@ class App:
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("sonido_sin_timer", True)
         self.config.setdefault("anim_fps", 60)
-        self.config.setdefault("anim_guardar", "ambos")
+        if self.config.get("version_config", 1) < 2:
+            # Desde esta versión el AVIF se crea después de recortar, no al terminar de grabar.
+            self.config["anim_guardar"] = "cuadros"
+            self.config["version_config"] = 2
+        self.config.setdefault("anim_guardar", "cuadros")
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
         self._grabando_desde = None
         self._migrar_botones_propios()
@@ -757,14 +881,16 @@ class App:
                                       border_color=BORDE)
         self.fila_anim.pack(**pad)
         ctk.CTkLabel(der, text="Guardar como", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(12, 4), **pad)
-        nombres_salida = {"avif": "AVIF animado", "cuadros": "Cuadros", "ambos": "Ambos"}
+        nombres_salida = {"cuadros": "Cuadros", "ambos": "Ambos", "avif": "AVIF animado"}
         self.seg_salida = ctk.CTkSegmentedButton(
             der, values=list(nombres_salida.values()), height=34, corner_radius=8, font=fuente(12),
             command=lambda v: self._cambiar_salida({n: k for k, n in nombres_salida.items()}[v]),
             fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
             unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_salida.set(nombres_salida.get(self.config["anim_guardar"], "Ambos"))
+        self.seg_salida.set(nombres_salida.get(self.config["anim_guardar"], "Cuadros"))
         self.seg_salida.pack(**pad)
+        ctk.CTkLabel(der, text="Con «Cuadros», haz clic en la animación para recortarla y crear el AVIF.",
+                     font=fuente(11), text_color=TENUE, anchor="w", wraplength=270, justify="left").pack(pady=(6, 0), **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1055,14 +1181,17 @@ class App:
             if not cuadros:
                 texto = etiqueta_foto(ruta)
             elif ruta.is_dir():
-                texto = f"{ruta.name} · cuadros"
+                texto = f"{ruta.name} · AVIF ✓" if (ruta / f"{ruta.name}.avif").exists() else ruta.name
             else:
                 texto = ruta.stem
             etiqueta = ctk.CTkLabel(celda, text=texto[:24], font=fuente(10), text_color=TENUE,
                                     anchor="w", height=20)
             etiqueta.pack(fill="x", padx=8, pady=(0, 4))
             for w in (foto, etiqueta):
-                w.bind("<Button-1>", lambda e, r=ruta: abrir(r))
+                if ruta.is_dir():
+                    w.bind("<Button-1>", lambda e, r=ruta: DialogoRecorte(self, r))
+                else:
+                    w.bind("<Button-1>", lambda e, r=ruta: abrir(r))
         if not self.miniaturas:
             ctk.CTkLabel(self.grilla_fotos, text="Aquí aparecerán tus\nfotos y animaciones.", font=fuente(12),
                          text_color=TENUE).grid(row=0, column=0, columnspan=2, pady=40)
@@ -1103,6 +1232,13 @@ class App:
                     if self._en_carpeta_mostrada(evento[1]):
                         self.miniaturas.insert(0, (evento[1], evento[2], None))
                         del self.miniaturas[MAX_MINIATURAS:]
+                        self._dibujar_miniaturas()
+                elif tipo == "avif_creado":
+                    carpeta, destino, n, error = evento[1:]
+                    if error:
+                        self.log(f"[!] No se pudo crear el AVIF de {carpeta.name}: {error}")
+                    else:
+                        self.log(f"✓ {destino.name}: {n} cuadros, {destino.stat().st_size / 1e6:.2f} MB")
                         self._dibujar_miniaturas()
                 elif tipo.startswith("anim_"):
                     self._evento_animacion(tipo, evento[1:])
@@ -1303,6 +1439,25 @@ class App:
                 self._alternar_timer(otro, momento)
         self._alternar_timer(nombre, momento, desde_mando=True)
 
+    def crear_avif(self, carpeta, rutas, destino, fps):
+        modo = self.config["prioridad"]
+        self.log(f"Creando el AVIF de {carpeta.name} con {len(rutas)} cuadros…")
+
+        def trabajo():
+            try:
+                if not animacion.avif_disponible():
+                    raise RuntimeError("este Pillow no tiene AVIF (ejecuta instalar.bat)")
+                rutas_txt = [str(r) for r in rutas]
+                if self.escucha.pool is not None:
+                    self.escucha.pool.submit(trabajador.crear_avif, rutas_txt, str(destino), fps,
+                                             animacion.HILOS.get(modo), modo).result()
+                else:
+                    animacion.crear_avif(rutas, destino, fps, hilos=animacion.HILOS.get(modo))
+                self.eventos.put(("avif_creado", carpeta, destino, len(rutas), None))
+            except Exception as e:
+                self.eventos.put(("avif_creado", carpeta, destino, len(rutas), str(e)))
+        threading.Thread(target=trabajo, daemon=True).start()
+
     def cancelar_timer(self, nombre):
         if not self.registro.corriendo(nombre):
             return
@@ -1405,6 +1560,20 @@ class App:
 
     # ------------------------------------------------------------------ sufijo y animaciones
 
+    @staticmethod
+    def _resumen_medidas(m):
+        partes = [f"{m['duracion_animacion_s']} s de animación para {m['duracion_real_s']} s reales"]
+        if m.get("fps_del_juego"):
+            partes.append(f"juego ≈ {m['fps_del_juego']:.0f} fps")
+        if m.get("monitor_hz"):
+            partes.append(f"monitor {m['monitor_hz']} Hz")
+        partes.append(f"{m['repetidos']} repetidos")
+        if m.get("descartados_por_llegar_antes"):
+            partes.append(f"{m['descartados_por_llegar_antes']} descartados")
+        if m.get("captura_ms_mediana") is not None:
+            partes.append(f"captura {m['captura_ms_mediana']} ms (p95 {m['captura_ms_p95']})")
+        return "   ↳ " + " · ".join(partes)
+
     def _sufijo_cambiado(self):
         sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
         ext = cap.extension(self.config.get("formato"))
@@ -1428,7 +1597,7 @@ class App:
             cuadros, segundos = datos
             self.pastilla_rec.configure(text=f"●  REC {int(segundos) // 60}:{int(segundos) % 60:02d} · {cuadros}")
         elif tipo == "anim_fin":
-            carpeta, miniatura, total, motivo = datos
+            carpeta, miniatura, total, motivo, medidas = datos
             self._grabando_desde = None
             self.pastilla_rec.pack_forget()
             if self.config["sonido_anim"]:
@@ -1438,6 +1607,7 @@ class App:
             else:
                 extra = " (se llegó al límite de memoria)" if motivo == "límite de memoria" else ""
                 self.log(f"■ {carpeta.name}: {total} cuadros grabados{extra}. Guardando…")
+                self.log(self._resumen_medidas(medidas))
             if miniatura is not None and total and self._en_carpeta_mostrada(carpeta):
                 img = marcar_animacion(hacer_miniatura(miniatura), total)
                 self.miniaturas.insert(0, (carpeta, img, total))
