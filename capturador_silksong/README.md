@@ -127,18 +127,26 @@ Medido con una captura real del juego a 1080p:
 - **Cierre inesperado o apagón:** cada 30 s se anota qué está corriendo. Al abrir la app otra vez, la sesión se guarda hasta ese momento y te avisa cuánto recuperó.
 - **La PC se suspende:** al despertar, los temporizadores se detienen en el momento en que se suspendió, así no cuentan el tiempo dormida.
 
-## Avisos en pantalla
+## Indicador en pantalla
 
-Abajo a la izquierda aparece un aviso pequeño: **FOTO** doric-007, **REC** 0:03 (mientras graba), **LISTO** al terminar una animación, **PAUSA** / **SIGUE**, **INICIO** / **FIN** del temporizador con el mando, y **SIN TEMPORIZADOR** si intentas capturar sin uno.
-- **No sale en las capturas:** Windows lo excluye de cualquier captura (también de Greenshot u OBS), así que puedes tomar otra foto mientras se ve. Requiere Windows 10 versión 2004 o más nuevo. Si no se puede, el aviso se desactiva solo.
-- No toma el foco ni recibe clics, así que el juego no se pausa.
-- Se ve encima del juego en **pantalla completa sin bordes**. En pantalla completa exclusiva Windows no deja dibujar encima.
-- Se apaga en Sonidos → "Avisos en pantalla".
+Un circulito abajo a la izquierda:
+- **Gris:** hay un temporizador corriendo.
+- **Rojo:** grabando una animación.
+- **Destello verde** (~0.3 s): se tomó una foto.
+- **No aparece** si no hay temporizador corriendo (detenido o en pausa).
+
+- **No sale en las capturas:** Windows lo excluye de cualquier captura (también de Greenshot u OBS). Requiere Windows 10 versión 2004 o más nuevo. Si no se puede, el indicador se desactiva solo.
+- No toma el foco ni recibe clics, así que el juego no se pausa. Se ve encima del juego en **pantalla completa sin bordes**.
+- Se apaga en Sonidos → "Indicador en pantalla".
+
+## Volumen
+
+En Sonidos, la **barrita de 5 niveles** controla el volumen de todos los sonidos de la app (el aviso de "sin temporizador", el pitido del temporizador, los tonos de la animación y el sonido de foto), sin tocar el volumen de Windows. Al tocar una barra suena una prueba. El aviso sigue siendo el mismo sonido de Windows, pero con el volumen escalado.
 
 ## Bandeja del sistema e inicio con Windows
 
 - La app pone su icono junto al reloj. Doble clic: abrir. Clic derecho: **Abrir** / **Salir**. Al pasar el mouse muestra el temporizador en marcha.
-- **Iniciar con Windows (en la bandeja)**, en la columna derecha: al prender la PC la app se abre escondida en la bandeja, lista para el mando.
+- **Iniciar con Windows**, en la columna derecha: al prender la PC la app se abre escondida en la bandeja, lista para el mando.
 - Si la abres otra vez (por ejemplo desde la barra de tareas) mientras ya está en la bandeja, se muestra la que ya estaba abierta en vez de abrir otra copia.
 
 ## Para que no se pause ni se ponga lento

@@ -1,24 +1,33 @@
 """
-Aviso pequeño en pantalla (abajo a la izquierda): FOTO, REC, PAUSA…
+Indicador mínimo en pantalla: un circulito abajo a la izquierda.
+
+- Gris: hay un temporizador corriendo.
+- Rojo: grabando una animación.
+- Destello verde (~0.3 s): se tomó una foto.
+- No aparece si no hay temporizador corriendo.
 
 - Siempre encima, incluso sobre el juego en pantalla completa sin bordes
   (en pantalla completa exclusiva Windows no deja dibujar encima).
 - No toma el foco ni recibe clics (el juego no se pausa).
 - Excluido de las capturas (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004 o más
   nuevo): se ve en el monitor pero no sale en ninguna foto ni animación.
-  Si Windows no lo permite, el aviso se desactiva para no arruinar capturas.
+  Si Windows no lo permite, el indicador se desactiva para no arruinar capturas.
 """
 
 import ctypes
 import os
 import tkinter as tk
-from ctypes import wintypes
 
-FONDO = "#0d1524"
-BORDE = "#1e2a3e"
-TEXTO = "#e8eef7"
-TENUE = "#8391a7"
-FAMILIA = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
+from PIL import Image, ImageDraw, ImageTk
+
+GRIS = "#8a94a6"
+ROJO = "#ff4d63"
+VERDE = "#2ee59d"      # verde esmeralda
+CONTORNO = "#0a101d"   # anillo oscuro para que se vea sobre fondos claros
+CLAVE = "#ff00fe"      # color que Windows vuelve transparente (el fondo de la ventana)
+DIAMETRO = 16
+MARGEN = 22
+DESTELLO_MS = 300
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
@@ -31,32 +40,55 @@ HWND_TOPMOST = -1
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x1, 0x2, 0x10, 0x40
 
 
-class AvisoPantalla:
-    MARGEN = 28
+def _hex(color):
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
 
+
+def dibujar_circulo(color, tam):
+    """Círculo con borde suave.
+
+    El suavizado se hace contra el anillo oscuro (no contra el fondo
+    transparente): si se mezclara con el color clave, en Windows quedaría un
+    halo rosa alrededor.
+    """
+    base = Image.new("RGB", (tam, tam), _hex(CLAVE))
+    mascara = Image.new("L", (tam, tam), 0)
+    ImageDraw.Draw(mascara).ellipse((0, 0, tam - 1, tam - 1), fill=255)
+    escala = 4
+    grande = Image.new("RGB", (tam * escala, tam * escala), _hex(CONTORNO))
+    borde = 2 * escala
+    ImageDraw.Draw(grande).ellipse((borde, borde, tam * escala - 1 - borde, tam * escala - 1 - borde),
+                                   fill=_hex(color))
+    base.paste(grande.resize((tam, tam), Image.LANCZOS), (0, 0), mascara)
+    return base
+
+
+class AvisoPantalla:
     def __init__(self, root):
         self.root = root
         self.disponible = False
         self.motivo = ""
-        self._ocultar_id = None
-        self._persistente = False
         self.hwnd = None
+        self._base = "oculto"     # "oculto", "listo" (gris) o "rec" (rojo)
+        self._destello_id = None
+        self._visible = False
 
-        self.ventana = tk.Toplevel(root, bg=BORDE)
+        tam = DIAMETRO + 4
+        self.ventana = tk.Toplevel(root, bg=CLAVE)
         self.ventana.overrideredirect(True)
         self.ventana.attributes("-topmost", True)
         try:
-            self.ventana.attributes("-alpha", 0.92)
+            self.ventana.attributes("-transparentcolor", CLAVE)  # solo Windows
         except tk.TclError:
             pass
-        marco = tk.Frame(self.ventana, bg=FONDO, padx=14, pady=8)
-        marco.pack(padx=1, pady=1)
-        self.punto = tk.Label(marco, text="●", bg=FONDO, fg=TEXTO, font=(FAMILIA, 12))
-        self.punto.pack(side="left")
-        self.titulo = tk.Label(marco, text="", bg=FONDO, fg=TEXTO, font=(FAMILIA, 11, "bold"))
-        self.titulo.pack(side="left", padx=(6, 8))
-        self.texto = tk.Label(marco, text="", bg=FONDO, fg=TENUE, font=(FAMILIA, 11))
-        self.texto.pack(side="left")
+        self.lienzo = tk.Canvas(self.ventana, width=tam, height=tam, bg=CLAVE, highlightthickness=0, bd=0)
+        self.lienzo.pack()
+        self._imagenes = {c: ImageTk.PhotoImage(dibujar_circulo(c, tam), master=self.ventana)
+                          for c in (GRIS, ROJO, VERDE)}
+        self.color = GRIS
+        self.circulo = self.lienzo.create_image(0, 0, anchor="nw", image=self._imagenes[GRIS])
+        alto = root.winfo_screenheight()
+        self.ventana.geometry(f"{tam}x{tam}+{MARGEN}+{alto - tam - MARGEN}")
         self.ventana.update_idletasks()
         self._preparar()
 
@@ -67,6 +99,7 @@ class AvisoPantalla:
             self.ventana.withdraw()
             return
         try:
+            from ctypes import wintypes
             u32 = ctypes.windll.user32
             u32.GetParent.argtypes = [wintypes.HWND]
             u32.GetParent.restype = wintypes.HWND
@@ -81,7 +114,7 @@ class AvisoPantalla:
             u32.SetWindowLongW(self.hwnd, GWL_EXSTYLE,
                                estilo | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
             if not u32.SetWindowDisplayAffinity(self.hwnd, WDA_EXCLUDEFROMCAPTURE):
-                self.motivo = "tu versión de Windows no permite ocultar el aviso de las capturas"
+                self.motivo = "tu versión de Windows no permite ocultarlo de las capturas"
                 u32.ShowWindow(self.hwnd, SW_HIDE)
                 return
             u32.ShowWindow(self.hwnd, SW_HIDE)
@@ -93,50 +126,63 @@ class AvisoPantalla:
             except tk.TclError:
                 pass
 
-    # ------------------------------------------------------------------ mostrar
+    # ------------------------------------------------------------------ estado
 
-    def mostrar(self, titulo, texto="", color=TEXTO, segundos=1.8):
-        """Muestra el aviso. segundos=None: queda hasta que se muestre otro u ocultar()."""
+    def estado(self, base):
+        """'oculto' (sin temporizador), 'listo' (gris) o 'rec' (rojo)."""
+        if base == self._base:
+            return
+        self._base = base
+        if self._destello_id is None:  # durante un destello se aplica al terminar
+            self._aplicar()
+
+    def destello(self):
+        """Flash verde de unos cuadros al tomar una foto."""
         if not self.disponible:
             return
-        self.punto.configure(fg=color)
-        self.titulo.configure(text=titulo, fg=color)
-        self.texto.configure(text=texto)
-        self.ventana.update_idletasks()
-        alto = self.ventana.winfo_reqheight()
-        x = self.MARGEN
-        y = self.root.winfo_screenheight() - alto - self.MARGEN
-        self.ventana.geometry(f"+{x}+{y}")
-        self._ver()
-        if self._ocultar_id:
-            self.root.after_cancel(self._ocultar_id)
-            self._ocultar_id = None
-        self._persistente = segundos is None
-        if segundos is not None:
-            self._ocultar_id = self.root.after(int(segundos * 1000), self.ocultar)
+        if self._destello_id:
+            self.root.after_cancel(self._destello_id)
+        self._pintar(VERDE)
+        self._ver(True)
+        self._destello_id = self.root.after(DESTELLO_MS, self._fin_destello)
 
-    def actualizar_texto(self, texto):
-        """Cambia solo el texto (para el contador de REC) sin reiniciar nada."""
-        if self.disponible and self.texto.cget("text") != texto:
-            self.texto.configure(text=texto)
+    def _fin_destello(self):
+        self._destello_id = None
+        self._aplicar()
 
     def ocultar(self):
-        self._ocultar_id = None
-        self._persistente = False
+        self._base = "oculto"
+        self._aplicar()
+
+    def _aplicar(self):
         if not self.disponible:
             return
-        if self.hwnd:
-            ctypes.windll.user32.ShowWindow(self.hwnd, SW_HIDE)
+        if self._base == "oculto":
+            self._ver(False)
         else:
-            self.ventana.withdraw()
+            self._pintar(ROJO if self._base == "rec" else GRIS)
+            self._ver(True)
 
-    def _ver(self):
+    def _pintar(self, color):
+        if color != self.color:
+            self.color = color
+            self.lienzo.itemconfigure(self.circulo, image=self._imagenes[color])
+
+    def _ver(self, visible):
+        if visible == self._visible and not visible:
+            return
+        self._visible = visible
         if self.hwnd:
             u32 = ctypes.windll.user32
-            # Mostrar sin activar y asegurar que quede encima del juego.
-            u32.ShowWindow(self.hwnd, SW_SHOWNOACTIVATE)
-            u32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
-        else:
+            if visible:
+                # Mostrar sin activar y asegurar que quede encima del juego.
+                u32.ShowWindow(self.hwnd, SW_SHOWNOACTIVATE)
+                u32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+            else:
+                u32.ShowWindow(self.hwnd, SW_HIDE)
+        elif visible:
             self.ventana.deiconify()
             self.ventana.lift()
+        else:
+            self.ventana.withdraw()

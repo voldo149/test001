@@ -443,7 +443,13 @@ def liberar_memoria(shm):
 
 
 def sonar():
-    if os.name == "nt":
+    """El aviso de Windows (SystemAsterisk), al volumen elegido en la app."""
+    if os.name != "nt":
+        return
+    try:
+        import sonidos
+        sonidos.reproducir("aviso")
+    except Exception:
         import winsound
         winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
 

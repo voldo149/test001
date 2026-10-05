@@ -28,6 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 import animacion
 import bandeja
 import capturador as cap
+import sonidos
 import trabajador
 from aviso_pantalla import AvisoPantalla
 from tiempos import RegistroTiempos, formato_duracion
@@ -91,17 +92,7 @@ def abrir(ruta):
 
 def pitido(inicio):
     """Pitido corto (no es un sonido de error de Windows): agudo = inicia, grave = para."""
-    if os.name != "nt":
-        return
-    import winsound
-
-    def _sonar():
-        if inicio:
-            winsound.Beep(1200, 90)
-        else:
-            winsound.Beep(700, 90)
-            winsound.Beep(500, 120)
-    threading.Thread(target=_sonar, daemon=True).start()
+    sonidos.reproducir("timer_inicio" if inicio else "timer_fin")
 
 
 def etiqueta_foto(ruta):
@@ -117,11 +108,7 @@ def etiqueta_foto(ruta):
 
 def sonido_anim(inicio):
     """Dos tonos: subiendo = empieza a grabar, bajando = terminó."""
-    if os.name != "nt":
-        return
-    import winsound
-    tonos = (880, 1320) if inicio else (1320, 880)
-    threading.Thread(target=lambda: [winsound.Beep(f, 80) for f in tonos], daemon=True).start()
+    sonidos.reproducir("anim_inicio" if inicio else "anim_fin")
 
 
 def marcar_animacion(img, n):
@@ -204,6 +191,38 @@ def titulo_seccion(padre, texto, texto_insignia=None):
 
 def separador(padre):
     return ctk.CTkFrame(padre, height=1, fg_color=BORDE, corner_radius=0)
+
+
+class BarraVolumen(tk.Canvas):
+    """5 barras de alturas crecientes; tocar una elige ese nivel."""
+
+    NIVELES = 5
+    ANCHO, SEPARACION, ALTO = 16, 6, 26
+
+    def __init__(self, padre, nivel, al_cambiar):
+        ancho = self.NIVELES * self.ANCHO + (self.NIVELES - 1) * self.SEPARACION
+        super().__init__(padre, width=ancho, height=self.ALTO, bg=PANEL, highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self.nivel = nivel
+        self.al_cambiar = al_cambiar
+        self.barras = []
+        for i in range(self.NIVELES):
+            x = i * (self.ANCHO + self.SEPARACION)
+            alto = 8 + (self.ALTO - 8) * i / (self.NIVELES - 1)
+            self.barras.append(self.create_rectangle(x, self.ALTO - alto, x + self.ANCHO, self.ALTO, width=0))
+        self.bind("<Button-1>", self._clic)
+        self._pintar()
+
+    def _clic(self, evento):
+        nivel = min(self.NIVELES, max(1, int(evento.x // (self.ANCHO + self.SEPARACION)) + 1))
+        if nivel != self.nivel:
+            self.nivel = nivel
+            self._pintar()
+        self.al_cambiar(nivel)
+
+    def _pintar(self):
+        for i, barra in enumerate(self.barras):
+            self.itemconfigure(barra, fill=VERDE if i < self.nivel else BORDE)
 
 
 class Dialogo(ctk.CTkToplevel):
@@ -593,7 +612,6 @@ class Escucha(threading.Thread):
 
     def _sin_timer(self):
         """Aviso sonoro y en pantalla: se intentó capturar sin temporizador en marcha."""
-        self._avisar("aviso", "SIN TEMPORIZADOR", "inicia uno para capturar")
         if self.config.get("sonido_sin_timer", True):
             cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
 
@@ -713,7 +731,7 @@ class Escucha(threading.Thread):
                                 reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
                                 guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
                                 self._avisar("captura", datetime.now())
-                                self._avisar("aviso", "FOTO", f"{sufijo}-{reserva[2]:03d}")
+                                self._avisar("destello")
                             except Exception as e:
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
@@ -743,6 +761,8 @@ class App:
         self.config.setdefault("sonido_sin_timer", True)
         self.config.setdefault("pausa_auto_min", 5)
         self.config.setdefault("avisos_pantalla", True)
+        self.config.setdefault("volumen", 3)
+        sonidos.volumen = self.config["volumen"]
         self._ultima_foto = {}  # temporizador -> última foto/animación de la sesión
         self.config.setdefault("anim_fps", 60)
         if self.config.get("version_config", 1) < 2:
@@ -791,7 +811,7 @@ class App:
                 "momento registrado:\n\n" + "\n".join(lineas)))
 
         if not self.aviso.disponible:
-            self.log(f"Avisos en pantalla desactivados: {self.aviso.motivo}")
+            self.log(f"Indicador en pantalla desactivado: {self.aviso.motivo}")
         if self.bandeja is not None and not self.bandeja.disponible:
             self.log(f"Sin icono en la bandeja: {self.bandeja.error}")
             self.bandeja = None
@@ -1020,6 +1040,13 @@ class App:
 
         cab, _ = titulo_seccion(der, "Sonidos")
         cab.pack(pady=(0, 6), **pad)
+        fila_vol = ctk.CTkFrame(der, fg_color="transparent")
+        fila_vol.pack(pady=(4, 8), **pad)
+        ctk.CTkLabel(fila_vol, text="Volumen", font=fuente(13), text_color=TEXTO).pack(side="left")
+        self.lbl_volumen = ctk.CTkLabel(fila_vol, text=f"{self.config['volumen']}/5", font=fuente(12),
+                                        text_color=TENUE, width=34)
+        self.lbl_volumen.pack(side="right")
+        BarraVolumen(fila_vol, self.config["volumen"], self._cambiar_volumen).pack(side="right", padx=(0, 8))
         self.var_sonido = tk.BooleanVar(value=self.config["sonido"])
         self.var_pitido = tk.BooleanVar(value=self.config["pitido_timers"])
         interruptor("Sonido al tomar foto", self.var_sonido).pack(pady=5, **pad)
@@ -1029,9 +1056,9 @@ class App:
         self.var_sonido_sin_timer = tk.BooleanVar(value=self.config["sonido_sin_timer"])
         interruptor("Aviso si no hay temporizador", self.var_sonido_sin_timer).pack(pady=5, **pad)
         self.var_avisos = tk.BooleanVar(value=self.config["avisos_pantalla"])
-        interruptor("Avisos en pantalla (abajo a la izq.)", self.var_avisos).pack(pady=5, **pad)
+        interruptor("Indicador en pantalla", self.var_avisos).pack(pady=5, **pad)
         self.var_inicio = tk.BooleanVar(value=bandeja.inicio_con_windows())
-        ctk.CTkSwitch(der, text="Iniciar con Windows (en la bandeja)", variable=self.var_inicio,
+        ctk.CTkSwitch(der, text="Iniciar con Windows", variable=self.var_inicio,
                       command=self._cambiar_inicio_windows, font=fuente(13), text_color=TEXTO, fg_color=BORDE,
                       progress_color=VERDE_BORDE, button_color=TEXTO,
                       button_hover_color="#ffffff").pack(pady=5, **pad)
@@ -1077,9 +1104,15 @@ class App:
         self.config["sonido_anim"] = self.var_sonido_anim.get()
         self.config["sonido_sin_timer"] = self.var_sonido_sin_timer.get()
         self.config["avisos_pantalla"] = self.var_avisos.get()
-        if not self.config["avisos_pantalla"]:
-            self.aviso.ocultar()
+        self._actualizar_indicador()
         self._guardar()
+
+    def _cambiar_volumen(self, nivel):
+        self.config["volumen"] = nivel
+        sonidos.volumen = nivel
+        self.lbl_volumen.configure(text=f"{nivel}/5")
+        self._guardar()
+        sonidos.reproducir("timer_inicio")  # para escuchar cómo queda
 
     def _cambiar_inicio_windows(self):
         activar = self.var_inicio.get()
@@ -1220,6 +1253,7 @@ class App:
                          f"{formato_duracion(duracion.total_seconds())}")
         self._ultimo_tick = ahora
         self._revisar_pausa_automatica(ahora)
+        self._actualizar_indicador()
         # Se puede tomar foto con un temporizador en marcha o en pausa (la foto lo reanuda).
         self.escucha.hay_timer = bool(self.registro.en_curso or self.registro.pausados)
 
@@ -1265,7 +1299,6 @@ class App:
             # (por ejemplo «escribir») nunca se pausa solo.
             if ultima and (ahora - ultima).total_seconds() > minutos * 60:
                 self.registro.pausar(nombre, ultima)
-                self._avisar_pantalla("PAUSA", f"{nombre} · {minutos} min sin fotos", TENUE, 4)
                 self.log(f"⏸ '{nombre}' en pausa: {minutos} min sin fotos. Se contó hasta la última foto; "
                          "la próxima foto lo reanuda.")
 
@@ -1274,7 +1307,6 @@ class App:
         for nombre in list(self.registro.pausados):
             self.registro.reanudar(nombre, momento)
             self.log(f"▶ '{nombre}' reanudado con la foto")
-            self._avisar_pantalla("SIGUE", nombre, VERDE, 1.5)
         for nombre in self.registro.en_curso:
             self._ultima_foto[nombre] = momento
         self._refrescar_tiempos(reprogramar=False)
@@ -1379,9 +1411,9 @@ class App:
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,
                                                   fg_color=ROJO_FONDO)
                     self.log(f"[!] {evento[1]}")
-                elif tipo == "aviso":
-                    titulo, texto = evento[1], evento[2]
-                    self._avisar_pantalla(titulo, texto, ROJO if titulo == "SIN TEMPORIZADOR" else VERDE)
+                elif tipo == "destello":
+                    if self.config.get("avisos_pantalla", True):
+                        self.aviso.destello()
                 elif tipo == "bandeja":
                     if evento[1] == "abrir":
                         self.mostrar_ventana()
@@ -1626,7 +1658,6 @@ class App:
             self.log(f"[!] No se pudo guardar el cuadro: {e}")
             return
         self.log(f"[foto] {destino.name} ← cuadro {cuadro.stem.rsplit('-', 1)[-1]} de {carpeta.name}")
-        self._avisar_pantalla("FOTO", destino.stem, VERDE)
         if self._en_carpeta_mostrada(destino):
             try:
                 with Image.open(destino) as img:
@@ -1737,11 +1768,6 @@ class App:
             self.log(f"■ '{nombre}' detenido: {formato_duracion(duracion.total_seconds())}")
         if desde_mando and self.config["pitido_timers"]:
             pitido(corriendo)
-        if desde_mando:
-            if corriendo:
-                self._avisar_pantalla("INICIO", nombre, VERDE)
-            else:
-                self._avisar_pantalla("FIN", f"{nombre} · {formato_duracion(duracion.total_seconds())}", TENUE, 2.5)
         self._refrescar_tiempos(reprogramar=False)
 
     def abrir_historial(self):
@@ -1784,9 +1810,17 @@ class App:
             partes.append(f"captura {m['captura_ms_mediana']} ms (p95 {m['captura_ms_p95']})")
         return "   ↳ " + " · ".join(partes)
 
-    def _avisar_pantalla(self, titulo, texto="", color=TEXTO, segundos=1.8):
-        if self.config.get("avisos_pantalla", True):
-            self.aviso.mostrar(titulo, texto, color, segundos)
+    def _actualizar_indicador(self):
+        """Circulito: rojo grabando, gris con temporizador corriendo, oculto si no."""
+        if not self.config.get("avisos_pantalla", True):
+            base = "oculto"
+        elif self._grabando_desde is not None:
+            base = "rec"
+        elif self.registro.en_curso:
+            base = "listo"
+        else:
+            base = "oculto"
+        self.aviso.estado(base)
 
     def _sufijo_cambiado(self):
         sufijo = cap.limpiar_sufijo(self.var_sufijo.get())
@@ -1805,19 +1839,17 @@ class App:
             self.pastilla_rec.configure(text="●  REC 0:00")
             self.pastilla_rec.pack(side="left", padx=(0, 10), before=self.pastilla_mando)
             self.log(f"● Grabando animación en {datos[0].name}…")
-            self._avisar_pantalla("REC", "0:00", ROJO, None)
+            self._actualizar_indicador()
             if self.config["sonido_anim"]:
                 sonido_anim(True)
         elif tipo == "anim_progreso":
             cuadros, segundos = datos
             self.pastilla_rec.configure(text=f"●  REC {int(segundos) // 60}:{int(segundos) % 60:02d} · {cuadros}")
-            if self.config.get("avisos_pantalla", True):
-                self.aviso.actualizar_texto(f"{int(segundos) // 60}:{int(segundos) % 60:02d}")
         elif tipo == "anim_fin":
             carpeta, miniatura, total, motivo, medidas = datos
             self._grabando_desde = None
             self.pastilla_rec.pack_forget()
-            self._avisar_pantalla("LISTO", f"{carpeta.name} · {total / 60:.1f} s", VERDE, 2.5)
+            self._actualizar_indicador()
             if self.config["sonido_anim"]:
                 sonido_anim(False)
             if motivo.startswith("error"):
