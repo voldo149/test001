@@ -309,7 +309,8 @@ class TarjetaTimer(ctk.CTkFrame):
         chico = dict(width=10, height=30, font=fuente(12))
         boton(abajo, "Borrar", lambda: app.borrar_timer(self.nombre), "fantasma", **chico).pack(side="right")
         # Solo visible mientras corre: descarta la sesión actual.
-        self.btn_cancelar = boton(abajo, "Cancelar", lambda: app.cancelar_timer(self.nombre), "fantasma",
+        # Mientras corre: "Cancelar" (descarta el tramo). En pausa: "Terminar" (detener del todo).
+        self.btn_cancelar = boton(abajo, "Cancelar", lambda: app.accion_secundaria(self.nombre), "fantasma",
                                   text_color=ROJO, **chico)
 
         # Clic en cualquier parte de la tarjeta (menos los botones) la selecciona.
@@ -338,7 +339,7 @@ class TarjetaTimer(ctk.CTkFrame):
             else:
                 widget.pack_forget()
 
-    def actualizar(self, corriendo, seleccionado, atajo, actual, hoy, semana, total):
+    def actualizar(self, corriendo, seleccionado, atajo, actual, hoy, semana, total, pausado=False):
         self._poner("reloj", self.reloj, text=actual, text_color=VERDE if corriendo else TENUE)
         if seleccionado:
             self._poner("borde", self, border_color=VERDE, border_width=2)
@@ -352,10 +353,15 @@ class TarjetaTimer(ctk.CTkFrame):
         else:
             texto = "🎮  Asigna el atajo de temporizador →"
         self._poner("mando", self.lbl_mando, text=texto)
-        self._mostrar("cancelar", self.btn_cancelar, corriendo, side="right")
-        self._poner("estado", self.estado, text="● EN MARCHA" if corriendo else "DETENIDO",
-                    text_color=VERDE if corriendo else TENUE)
-        if corriendo:
+        self._mostrar("cancelar", self.btn_cancelar, corriendo or pausado, side="right")
+        self._poner("cancelar_txt", self.btn_cancelar, text="Terminar" if pausado else "Cancelar",
+                    text_color=TENUE if pausado else ROJO)
+        estado = "● EN MARCHA" if corriendo else ("⏸ EN PAUSA" if pausado else "DETENIDO")
+        self._poner("estado", self.estado, text=estado, text_color=VERDE if corriendo else TENUE)
+        if pausado:
+            self._poner("btn", self.btn, text="▶  Reanudar", fg_color=TARJETA, hover_color=TARJETA_HOVER,
+                        text_color=TEXTO, border_color=BORDE)
+        elif corriendo:
             self._poner("btn", self.btn, text="■  Parar", fg_color=ROJO_FONDO, hover_color=ROJO_HOVER,
                         text_color=ROJO, border_color="#5c2433")
         else:
@@ -397,8 +403,9 @@ class DialogoRecorte(ctk.CTkToplevel):
         ultimo = max(len(self.cuadros) - 1, 0)
         self.var_inicio = tk.IntVar(value=0)
         self.var_fin = tk.IntVar(value=ultimo)
-        self.lbl_inicio = self._fila(cuerpo, "Inicio", self.var_inicio, ultimo, lambda v: self._mover("inicio", v))
-        self.lbl_fin = self._fila(cuerpo, "Final", self.var_fin, ultimo, lambda v: self._mover("fin", v))
+        self._maximo = ultimo
+        self.lbl_inicio = self._fila(cuerpo, "Inicio", self.var_inicio, "inicio")
+        self.lbl_fin = self._fila(cuerpo, "Final", self.var_fin, "fin")
 
         self.lbl_resumen = ctk.CTkLabel(cuerpo, text="", font=fuente(13, "bold"), text_color=VERDE, anchor="w")
         self.lbl_resumen.pack(fill="x", pady=(10, 0))
@@ -413,16 +420,49 @@ class DialogoRecorte(ctk.CTkToplevel):
         self._mostrar(0)
         self.after(30, self._centrar)
 
-    def _fila(self, padre, texto, var, maximo, al_mover):
+    def _fila(self, padre, texto, var, cual):
         fila = ctk.CTkFrame(padre, fg_color="transparent")
         fila.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(fila, text=texto, font=fuente(12), text_color=TENUE, width=50, anchor="w").pack(side="left")
-        ctk.CTkSlider(fila, from_=0, to=max(maximo, 1), number_of_steps=max(maximo, 1), variable=var,
-                      command=al_mover, progress_color=VERDE_BORDE, button_color=VERDE,
+        self._boton_paso(fila, "−", var, -1, cual).pack(side="left", padx=(4, 0))
+        ctk.CTkSlider(fila, from_=0, to=max(self._maximo, 1), number_of_steps=max(self._maximo, 1), variable=var,
+                      command=lambda v: self._mover(cual, v), progress_color=VERDE_BORDE, button_color=VERDE,
                       button_hover_color=VERDE_CLARO, fg_color=BORDE).pack(side="left", fill="x", expand=True, padx=8)
+        self._boton_paso(fila, "+", var, +1, cual).pack(side="left", padx=(0, 8))
         etiqueta = ctk.CTkLabel(fila, text="", font=fuente(12), text_color=TEXTO, width=150, anchor="e")
         etiqueta.pack(side="left")
         return etiqueta
+
+    def _boton_paso(self, padre, texto, var, paso, cual):
+        """Un toque: un cuadro. Mantenido: tras 0.3 s avanza solo, cada vez más rápido."""
+        b = boton(padre, texto, None, "normal", width=36, height=32, font=fuente(16, "bold"))
+        estado = {"id": None, "intervalo": 90}
+
+        def mover():
+            nuevo = min(max(var.get() + paso, 0), self._maximo)
+            if nuevo != var.get():
+                var.set(nuevo)
+                self._mover(cual, nuevo)
+
+        def repetir():
+            mover()
+            estado["intervalo"] = max(15, int(estado["intervalo"] * 0.85))  # acelera
+            estado["id"] = self.after(estado["intervalo"], repetir)
+
+        def presionar(_):
+            soltar(None)
+            mover()
+            estado["intervalo"] = 90
+            estado["id"] = self.after(300, repetir)
+
+        def soltar(_):
+            if estado["id"]:
+                self.after_cancel(estado["id"])
+                estado["id"] = None
+
+        b.bind("<ButtonPress-1>", presionar, add="+")
+        b.bind("<ButtonRelease-1>", soltar, add="+")
+        return b
 
     def _centrar(self):
         self.update_idletasks()
@@ -443,11 +483,15 @@ class DialogoRecorte(ctk.CTkToplevel):
             else:
                 self.var_inicio.set(fin)
         self._actualizar_textos()
-        indice = self.var_inicio.get() if cual == "inicio" else self.var_fin.get()
-        # No decodificar cada posición mientras se arrastra: esperar a que se detenga un momento.
-        if self._pendiente:
-            self.after_cancel(self._pendiente)
-        self._pendiente = self.after(60, lambda: self._mostrar(indice))
+        # Mostrar como mucho ~14 cuadros por segundo mientras se arrastra o se mantiene + / −,
+        # siempre el más reciente (decodificar cada posición sería lento).
+        self._indice_vista = self.var_inicio.get() if cual == "inicio" else self.var_fin.get()
+        if not self._pendiente:
+            self._pendiente = self.after(70, self._mostrar_pendiente)
+
+    def _mostrar_pendiente(self):
+        self._pendiente = None
+        self._mostrar(self._indice_vista)
 
     def _texto_cuadro(self, i):
         return f"cuadro {i + 1} · {i / self.fps:.2f} s"
@@ -544,6 +588,7 @@ class Escucha(threading.Thread):
     def _alternar_animacion(self):
         if self.grabando_animacion:
             self.grabador.detener()
+            self._avisar("captura", datetime.now())
             return
         if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
             self._avisar("log", "Animación ignorada: no hay ningún temporizador en marcha.")
@@ -558,6 +603,7 @@ class Escucha(threading.Thread):
         self.grabador = g
         self.grabadores.append(g)
         self._avisar("anim_inicio", g.carpeta)
+        self._avisar("captura", datetime.now())
 
     def _construir_detector(self):
         atajos, acciones = [], {}
@@ -654,6 +700,7 @@ class Escucha(threading.Thread):
                                 sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
                                 reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
                                 guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
+                                self._avisar("captura", datetime.now())
                             except Exception as e:
                                 self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
                     elif tipo == "global":
@@ -681,6 +728,8 @@ class App:
         self.config.setdefault("timer_seleccionado", None)
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("sonido_sin_timer", True)
+        self.config.setdefault("pausa_auto_min", 5)
+        self._ultima_foto = {}  # temporizador -> última foto/animación de la sesión
         self.config.setdefault("anim_fps", 60)
         if self.config.get("version_config", 1) < 2:
             # Desde esta versión el AVIF se crea después de recortar, no al terminar de grabar.
@@ -870,6 +919,16 @@ class App:
         self.fila_global = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
                                         border_color=BORDE)
         self.fila_global.pack(**pad)
+        ctk.CTkLabel(der, text="Pausa automática sin fotos", font=fuente(12), text_color=TENUE,
+                     anchor="w").pack(pady=(12, 4), **pad)
+        opciones_pausa = {"No": 0, "3 min": 3, "5 min": 5, "10 min": 10}
+        self.seg_pausa = ctk.CTkSegmentedButton(
+            der, values=list(opciones_pausa), height=34, corner_radius=8, font=fuente(12),
+            command=lambda v: self._cambiar_pausa(opciones_pausa[v]),
+            fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
+            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
+        self.seg_pausa.set(next((k for k, v in opciones_pausa.items() if v == self.config["pausa_auto_min"]), "5 min"))
+        self.seg_pausa.pack(**pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -988,6 +1047,14 @@ class App:
         self.config["sonido_sin_timer"] = self.var_sonido_sin_timer.get()
         self._guardar()
 
+    def _cambiar_pausa(self, minutos):
+        self.config["pausa_auto_min"] = minutos
+        self._guardar()
+        if minutos:
+            self.log(f"Pausa automática: tras {minutos} min sin fotos (cuenta hasta la última foto).")
+        else:
+            self.log("Pausa automática desactivada.")
+
     def _cambiar_salida(self, salida):
         self.config["anim_guardar"] = salida
         self._guardar()
@@ -1103,32 +1170,70 @@ class App:
                 self.log(f"■ '{nombre}' detenido por suspensión de la PC: "
                          f"{formato_duracion(duracion.total_seconds())}")
         self._ultimo_tick = ahora
-        self.escucha.hay_timer = bool(self.registro.en_curso)
+        self._revisar_pausa_automatica(ahora)
+        # Se puede tomar foto con un temporizador en marcha o en pausa (la foto lo reanuda).
+        self.escucha.hay_timer = bool(self.registro.en_curso or self.registro.pausados)
 
         en_marcha = []
         atajo = cap.texto_combo(self.config["atajo_timer"]) if self.config.get("atajo_timer") else None
         for nombre, tarjeta in self.tarjetas.items():
             corriendo = self.registro.corriendo(nombre)
-            actual = formato_duracion(self.registro.actual(nombre, ahora))
+            pausado = self.registro.en_pausa(nombre)
+            actual = formato_duracion(self.registro.sesion(nombre, ahora))
             tarjeta.actualizar(
                 corriendo, nombre == self.config["timer_seleccionado"], atajo, actual,
                 formato_duracion(self.registro.total_hoy(nombre, ahora)),
                 formato_duracion(self.registro.total_semana(nombre, ahora)),
                 formato_duracion(self.registro.total(nombre, ahora=ahora)),
+                pausado=pausado,
             )
             if corriendo:
-                en_marcha.append(f"{nombre} {actual}")
+                en_marcha.append(f"▶ {nombre} {actual}")
+            elif pausado:
+                en_marcha.append(f"⏸ {nombre} {actual}")
         texto = f"{len(en_marcha)} activo" + ("" if len(en_marcha) == 1 else "s")
         if self.ins_activos.cget("text") != texto.upper():
             self.ins_activos.configure(text=texto.upper(), text_color=VERDE if en_marcha else TENUE)
         # El título se ve en la barra de tareas sin abrir la ventana.
-        titulo = f"▶ {', '.join(en_marcha)} — {TITULO}" if en_marcha else TITULO
+        titulo = f"{', '.join(en_marcha)} — {TITULO}" if en_marcha else TITULO
         if self._grabando_desde is not None:
             titulo = "● REC — " + titulo
         if self.root.title() != titulo:
             self.root.title(titulo)
         if reprogramar:
             self.root.after(500, self._refrescar_tiempos)
+
+    def _revisar_pausa_automatica(self, ahora):
+        """Si pasan N minutos sin fotos, pausar contando solo hasta la última foto."""
+        minutos = self.config.get("pausa_auto_min", 5)
+        if not minutos or self.escucha.grabando_animacion:
+            return
+        for nombre in list(self.registro.en_curso):
+            ultima = self._ultima_foto.get(nombre)
+            # Solo después de la primera foto de la sesión: un temporizador sin fotos
+            # (por ejemplo «escribir») nunca se pausa solo.
+            if ultima and (ahora - ultima).total_seconds() > minutos * 60:
+                self.registro.pausar(nombre, ultima)
+                self.log(f"⏸ '{nombre}' en pausa: {minutos} min sin fotos. Se contó hasta la última foto; "
+                         "la próxima foto lo reanuda.")
+
+    def _captura(self, momento):
+        """Se tomó (o empezó) una foto o animación."""
+        for nombre in list(self.registro.pausados):
+            self.registro.reanudar(nombre, momento)
+            self.log(f"▶ '{nombre}' reanudado con la foto")
+        for nombre in self.registro.en_curso:
+            self._ultima_foto[nombre] = momento
+        self._refrescar_tiempos(reprogramar=False)
+
+    def accion_secundaria(self, nombre):
+        if self.registro.en_pausa(nombre):
+            self.registro.parar(nombre)
+            self._ultima_foto.pop(nombre, None)
+            self.log(f"■ '{nombre}' terminado (estaba en pausa)")
+            self._refrescar_tiempos(reprogramar=False)
+        else:
+            self.cancelar_timer(nombre)
 
     def _latido(self):
         self.registro.latido()
@@ -1219,6 +1324,8 @@ class App:
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,
                                                   fg_color=ROJO_FONDO)
                     self.log(f"[!] {evento[1]}")
+                elif tipo == "captura":
+                    self._captura(evento[1])
                 elif tipo == "timer_global":
                     self._timer_global(evento[1])
                 elif tipo == "combo":
@@ -1437,6 +1544,10 @@ class App:
         if not self.registro.corriendo(nombre):
             for otro in list(self.registro.en_curso):
                 self._alternar_timer(otro, momento)
+            for otro in list(self.registro.pausados):
+                if otro != nombre:
+                    self.registro.parar(otro)
+                    self._ultima_foto.pop(otro, None)
         self._alternar_timer(nombre, momento, desde_mando=True)
 
     def crear_avif(self, carpeta, rutas, destino, fps):
@@ -1528,9 +1639,14 @@ class App:
     def _alternar_timer(self, nombre, momento, desde_mando=False):
         if self._timer(nombre) is None:
             return
+        era_pausa = self.registro.en_pausa(nombre)
         corriendo, duracion = self.registro.alternar(nombre, momento)
+        if corriendo and era_pausa:
+            self._ultima_foto[nombre] = momento  # reanudar cuenta como actividad (si no, se pausaría al instante)
+        else:
+            self._ultima_foto.pop(nombre, None)
         if corriendo:
-            self.log(f"▶ '{nombre}' iniciado")
+            self.log(f"▶ '{nombre}' {'reanudado' if era_pausa else 'iniciado'}")
         else:
             self.log(f"■ '{nombre}' detenido: {formato_duracion(duracion.total_seconds())}")
         if desde_mando and self.config["pitido_timers"]:

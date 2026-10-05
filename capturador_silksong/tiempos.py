@@ -30,6 +30,8 @@ class RegistroTiempos:
         self.archivo_en_curso = carpeta / "en_curso.json"
         self.sesiones = []   # [(actividad, inicio, fin)]
         self.en_curso = {}   # actividad -> inicio
+        self.pausados = set()  # en pausa automática (no cuentan, pero la sesión sigue)
+        self.previo = {}       # actividad -> segundos de tramos anteriores de esta sesión
         self.recuperadas = []  # sesiones salvadas de un cierre inesperado
         self.ultimo_latido = None
         self._cargar()
@@ -96,17 +98,30 @@ class RegistroTiempos:
         self.archivo_en_curso.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
 
     # ---------------------------------------------------------------- control
+    # Pausa: el tramo hasta la pausa se guarda como una sesión y, al reanudar, empieza
+    # otro tramo. Así los totales son exactos y el reloj de la tarjeta suma los tramos.
 
     def corriendo(self, actividad):
         return actividad in self.en_curso
 
-    def iniciar(self, actividad, momento=None):
+    def en_pausa(self, actividad):
+        return actividad in self.pausados
+
+    def iniciar(self, actividad, momento=None, continuar=False):
         if actividad not in self.en_curso:
+            if not continuar:
+                self.previo.pop(actividad, None)
+            self.pausados.discard(actividad)
             self.en_curso[actividad] = momento or datetime.now()
             self.latido(momento)
 
     def parar(self, actividad, momento=None):
-        """Detiene y guarda. Devuelve la duración (timedelta) o None."""
+        """Detiene y guarda. Devuelve la duración del último tramo (timedelta) o None."""
+        self.pausados.discard(actividad)
+        self.previo.pop(actividad, None)
+        return self._cerrar_tramo(actividad, momento)
+
+    def _cerrar_tramo(self, actividad, momento):
         inicio = self.en_curso.pop(actividad, None)
         if inicio is None:
             return None
@@ -115,23 +130,46 @@ class RegistroTiempos:
         self.latido(fin)
         return fin - inicio
 
+    def pausar(self, actividad, momento=None):
+        """Deja de contar desde `momento` (puede ser en el pasado) sin detener del todo."""
+        duracion = self._cerrar_tramo(actividad, momento)
+        if duracion is None:
+            return None
+        self.previo[actividad] = self.previo.get(actividad, 0.0) + duracion.total_seconds()
+        self.pausados.add(actividad)
+        return duracion
+
+    def reanudar(self, actividad, momento=None):
+        if actividad in self.pausados:
+            self.iniciar(actividad, momento, continuar=True)
+
     def cancelar(self, actividad):
-        """Descarta la sesión en marcha como si nunca hubiera pasado. Devuelve lo descartado."""
+        """Descarta el tramo en marcha como si nunca hubiera pasado. Devuelve lo descartado."""
         inicio = self.en_curso.pop(actividad, None)
+        self.previo.pop(actividad, None)
         if inicio is None:
             return None
         self.latido()
         return datetime.now() - inicio
 
     def alternar(self, actividad, momento=None):
-        """Inicia o detiene. Devuelve (corriendo_ahora, duracion_si_paro)."""
+        """Inicia (o reanuda) o detiene. Devuelve (corriendo_ahora, duracion_si_paro)."""
         if self.corriendo(actividad):
             return False, self.parar(actividad, momento)
+        if self.en_pausa(actividad):
+            self.reanudar(actividad, momento)
+            return True, None
         self.iniciar(actividad, momento)
         return True, None
 
     def parar_todos(self, momento=None):
+        for a in list(self.pausados):
+            self.parar(a)
         return {a: self.parar(a, momento) for a in list(self.en_curso)}
+
+    def sesion(self, actividad, ahora=None):
+        """Segundos de la sesión actual: tramos antes de las pausas + el tramo en marcha."""
+        return self.previo.get(actividad, 0.0) + self.actual(actividad, ahora)
 
     # ---------------------------------------------------------------- totales
 
