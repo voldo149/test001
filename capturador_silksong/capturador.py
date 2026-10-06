@@ -284,6 +284,9 @@ class Capturador:
         return Image.frombytes("RGB", obj.size, obj.bgra, "raw", "BGRX")
 
 
+AUTOSHOT = "autoshot"  # nombre de las fotos automáticas
+
+
 class Guardador(threading.Thread):
     """Codifica y guarda en segundo plano para no bloquear la lectura del mando."""
 
@@ -305,6 +308,8 @@ class Guardador(threading.Thread):
             reserva = item[3] if len(item) > 3 else None  # (carpeta, sufijo, número) ya apartado
             try:
                 ruta, img = self._guardar(nombre_atajo, momento, datos, reserva)
+                if nombre_atajo == AUTOSHOT:
+                    continue  # las automáticas se guardan en silencio (pueden ser cientos)
                 self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.al_guardar:
                     self.al_guardar(ruta, img)

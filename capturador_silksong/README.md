@@ -6,6 +6,33 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 - **Animaciones:** secuencias de imágenes a 60 fps. Un atajo empieza a grabar y el mismo atajo termina.
 - **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
 
+## Instalación desde cero (en una PC nueva)
+
+1. Abre **CMD** (tecla Windows, escribe `cmd`, Enter) e instala Git y Python:
+   ```cmd
+   winget install -e --id Git.Git
+   winget install -e --id Python.Python.3.12
+   ```
+   **Cierra CMD y ábrelo otra vez** para que reconozca los programas nuevos.
+2. Descarga la app:
+   ```cmd
+   cd %USERPROFILE%
+   git clone -b claude/adoring-darwin-pktdfp https://github.com/voldo149/test001.git
+   cd test001\capturador_silksong
+   ```
+   Si el repositorio es privado, GitHub pide iniciar sesión con una cuenta que tenga acceso.
+3. Escribe `instalar.bat` y Enter. Instala todo y crea el acceso directo **Capturador Silksong** en el Escritorio y en Inicio.
+4. Para abrirla con un clic: busca "Capturador Silksong" en **Inicio**, clic derecho, **Anclar a la barra de tareas**.
+
+**Para actualizar después:** cierra la app y en CMD:
+```cmd
+cd %USERPROFILE%\test001\capturador_silksong
+git pull
+instalar.bat
+```
+
+**Primera configuración en la app:** "+ Temporizador" (el juego), asigna el **Atajo de temporizador**, el **Atajo de foto** y el **Atajo de animación**, elige la carpeta con 📁, escribe el **Sufijo** y elige **WEBP**. En el juego: **pantalla completa sin bordes**, HDR de Windows apagado y, para las animaciones, el juego limitado a 60 fps.
+
 ## Instalación (una sola vez)
 
 1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador Silksong** con icono en el Escritorio y en el menú Inicio.
@@ -32,6 +59,7 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 - **Atajo de temporizador:** es uno solo para todos y se asigna en la columna derecha. Inicia o para el temporizador **seleccionado**.
 - **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
 - **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Si lo intentas sin temporizador, suena el aviso de Windows ("Aviso si no hay temporizador", en Sonidos). Se apaga con el interruptor en "Atajos de foto".
+- **Autoshot** (en Atajos de foto): toma una foto sola cada N segundos (− / + para elegir, de 1 a 60) mientras corre el temporizador. Puedes seguir tomando tus fotos normales. Las automáticas van a la subcarpeta **`auto`** (`auto/doric-auto-001.webp`, …) para no revolverse con las tuyas, y no hacen sonido, no hacen destello ni llenan las miniaturas. No cuentan para la pausa automática, se detienen mientras el temporizador está en pausa y mientras grabas una animación.
 - **Pausa automática sin fotos** (columna derecha: No / 3 / 5 / 10 min, por defecto 5): si pasa ese tiempo sin fotos ni animaciones, el temporizador se pone **en pausa** (gris) y **se cuenta solo hasta la última foto**. La siguiente foto lo reanuda. Solo se activa después de la primera foto de la sesión, así un temporizador en el que no tomas fotos (por ejemplo "escribir") nunca se pausa solo. En pausa, la tarjeta muestra **Reanudar** y **Terminar**.
 - **Cancelar:** aparece en la tarjeta mientras corre. Descarta la sesión actual como si nunca hubiera pasado, por ejemplo si lo dejaste corriendo por accidente. Pide confirmación y no toca las sesiones anteriores.
 

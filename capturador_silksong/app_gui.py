@@ -575,7 +575,9 @@ class Escucha(threading.Thread):
         self._recargar = True
         self._grabar = False
         self._detener = threading.Event()
-        self.hay_timer = False  # la ventana lo actualiza: ¿hay algún temporizador en marcha?
+        self.hay_timer = False  # la ventana lo actualiza: ¿hay algún temporizador en marcha o en pausa?
+        self.timer_corriendo = False  # solo en marcha (no en pausa): para el autoshot
+        self.autoshots = 0
         self.grabador = None    # animación en curso (o guardándose)
         self.grabadores = []    # todas las que aún no terminan de guardarse
         self.guardador = None
@@ -614,6 +616,18 @@ class Escucha(threading.Thread):
         """Aviso sonoro y en pantalla: se intentó capturar sin temporizador en marcha."""
         if self.config.get("sonido_sin_timer", True):
             cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
+
+    def _autoshot(self, guardador, capturador):
+        """Foto automática en <carpeta>/auto/<sufijo>-auto-NNN, sin sonido ni miniatura."""
+        try:
+            carpeta = cap.carpeta_actual(self.config) / "auto"
+            sufijo = cap.limpiar_sufijo(self.config.get("sufijo")) + "-auto"
+            reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
+            guardador.cola.put((cap.AUTOSHOT, datetime.now(), capturador.tomar(), reserva))
+            self.autoshots += 1
+            self._avisar("autoshot", self.autoshots)
+        except Exception as e:
+            self._avisar("log", f"[!] Autoshot: {e}")
 
     def _alternar_animacion(self):
         if self.grabando_animacion:
@@ -682,6 +696,7 @@ class Escucha(threading.Thread):
         ultimo_estado = 0.0
         estado_grabar = None  # None -> "soltar" -> "acumular"
         acumulado = 0
+        proximo_auto = None
 
         while not self._detener.is_set():
             ahora = time.monotonic()
@@ -739,6 +754,19 @@ class Escucha(threading.Thread):
                     elif tipo == "anim":
                         self._alternar_animacion()
 
+            # Autoshot: una foto cada N segundos mientras corre un temporizador (no en pausa).
+            permitido = self.timer_corriendo or not self.config.get("fotos_solo_con_timer", True)
+            if (self.config.get("autoshot") and permitido and capturador is not None
+                    and not self.grabando_animacion and not self._grabar):
+                intervalo = max(1.0, float(self.config.get("autoshot_seg", 3)))
+                if proximo_auto is None:
+                    proximo_auto = ahora + intervalo  # la primera, un intervalo después de activarlo
+                elif ahora >= proximo_auto:
+                    proximo_auto = ahora + intervalo
+                    self._autoshot(guardador, capturador)
+            else:
+                proximo_auto = None
+
             time.sleep(cap.INTERVALO_LECTURA)
 
         self.detener_animacion()
@@ -762,6 +790,8 @@ class App:
         self.config.setdefault("pausa_auto_min", 5)
         self.config.setdefault("avisos_pantalla", True)
         self.config.setdefault("volumen", 3)
+        self.config.setdefault("autoshot", False)
+        self.config.setdefault("autoshot_seg", 3)
         sonidos.volumen = self.config["volumen"]
         self._ultima_foto = {}  # temporizador -> última foto/animación de la sesión
         self.config.setdefault("anim_fps", 60)
@@ -1008,6 +1038,24 @@ class App:
         self.var_solo_timer = tk.BooleanVar(value=self.config["fotos_solo_con_timer"])
         interruptor("Solo con temporizador activo", self.var_solo_timer).pack(pady=5, **pad)
 
+        # Autoshot: foto automática cada N segundos
+        fila_auto = ctk.CTkFrame(der, fg_color="transparent")
+        fila_auto.pack(pady=(8, 0), **pad)
+        self.var_autoshot = tk.BooleanVar(value=self.config["autoshot"])
+        ctk.CTkSwitch(fila_auto, text="Autoshot", variable=self.var_autoshot, command=self._cambiar_autoshot,
+                      font=fuente(13), text_color=TEXTO, fg_color=BORDE, progress_color=VERDE_BORDE,
+                      button_color=TEXTO, button_hover_color="#ffffff").pack(side="left")
+        boton(fila_auto, "+", lambda: self._paso_autoshot(+1), "normal", width=32, height=30,
+              font=fuente(15, "bold")).pack(side="right")
+        self.lbl_autoshot_seg = ctk.CTkLabel(fila_auto, text="", font=fuente(13, "bold"), text_color=TEXTO, width=44)
+        self.lbl_autoshot_seg.pack(side="right")
+        boton(fila_auto, "−", lambda: self._paso_autoshot(-1), "normal", width=32, height=30,
+              font=fuente(15, "bold")).pack(side="right")
+        self.lbl_autoshot = ctk.CTkLabel(der, text="", font=fuente(11), text_color=TENUE, anchor="w",
+                                         wraplength=270, justify="left")
+        self.lbl_autoshot.pack(pady=(2, 0), **pad)
+        self._mostrar_autoshot()
+
         separador(der).pack(pady=20, **pad)
 
         cab, _ = titulo_seccion(der, "Formato", "Fotos")
@@ -1106,6 +1154,31 @@ class App:
         self.config["avisos_pantalla"] = self.var_avisos.get()
         self._actualizar_indicador()
         self._guardar()
+
+    def _mostrar_autoshot(self, cuantas=None):
+        self.lbl_autoshot_seg.configure(text=f"{self.config['autoshot_seg']} s")
+        if not self.config["autoshot"]:
+            texto = "Una foto cada tantos segundos mientras corre el temporizador (en la subcarpeta «auto»)."
+        elif cuantas:
+            texto = f"Activo · {cuantas} fotos automáticas en «auto»"
+        else:
+            texto = "Activo · las fotos van a la subcarpeta «auto»"
+        self.lbl_autoshot.configure(text=texto, text_color=VERDE if self.config["autoshot"] else TENUE)
+
+    def _cambiar_autoshot(self):
+        self.config["autoshot"] = self.var_autoshot.get()
+        self._guardar()
+        if self.config["autoshot"]:
+            self.escucha.autoshots = 0
+            self.log(f"Autoshot activado: una foto cada {self.config['autoshot_seg']} s mientras corre el temporizador.")
+        else:
+            self.log(f"Autoshot desactivado ({self.escucha.autoshots} fotos automáticas).")
+        self._mostrar_autoshot()
+
+    def _paso_autoshot(self, paso):
+        self.config["autoshot_seg"] = min(60, max(1, int(self.config["autoshot_seg"]) + paso))
+        self._guardar()
+        self._mostrar_autoshot(self.escucha.autoshots if self.config["autoshot"] else None)
 
     def _cambiar_volumen(self, nivel):
         self.config["volumen"] = nivel
@@ -1256,6 +1329,7 @@ class App:
         self._actualizar_indicador()
         # Se puede tomar foto con un temporizador en marcha o en pausa (la foto lo reanuda).
         self.escucha.hay_timer = bool(self.registro.en_curso or self.registro.pausados)
+        self.escucha.timer_corriendo = bool(self.registro.en_curso)
 
         en_marcha = []
         atajo = cap.texto_combo(self.config["atajo_timer"]) if self.config.get("atajo_timer") else None
@@ -1411,6 +1485,8 @@ class App:
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,
                                                   fg_color=ROJO_FONDO)
                     self.log(f"[!] {evento[1]}")
+                elif tipo == "autoshot":
+                    self._mostrar_autoshot(evento[1])
                 elif tipo == "destello":
                     if self.config.get("avisos_pantalla", True):
                         self.aviso.destello()
