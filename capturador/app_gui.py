@@ -2023,6 +2023,8 @@ class App:
         if m.get("monitor_hz"):
             partes.append(f"monitor {m['monitor_hz']} Hz")
         partes.append(f"{m['repetidos']} repetidos")
+        if m.get("repetidos_por_memoria"):
+            partes.append(f"{m['repetidos_por_memoria']} por no alcanzar a guardar")
         if m.get("descartados_por_llegar_antes"):
             partes.append(f"{m['descartados_por_llegar_antes']} descartados")
         if m.get("captura_ms_mediana") is not None:
@@ -2074,8 +2076,7 @@ class App:
             if motivo.startswith("error"):
                 self.log(f"[!] Animación {carpeta.name}: {motivo}")
             else:
-                extra = " (se llegó al límite de memoria)" if motivo == "límite de memoria" else ""
-                self.log(f"■ {carpeta.name}: {total} cuadros grabados{extra}. Guardando…")
+                self.log(f"■ {carpeta.name}: {total} cuadros grabados. Guardando…")
                 self.log(self._resumen_medidas(medidas))
             if miniatura is not None and total and self._en_carpeta_mostrada(carpeta):
                 img = marcar_animacion(hacer_miniatura(miniatura), total)

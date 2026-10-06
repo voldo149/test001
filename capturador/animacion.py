@@ -12,7 +12,11 @@ Para que se vea fluida:
   GIL al comprimir WebP/JPG y, en el mismo proceso, eso congelaba la captura y
   hacía que se perdieran cuadros (la animación se veía cortada).
 - El hilo de captura tiene prioridad alta: hace muy poco trabajo por cuadro.
-- Si la RAM usada llega al límite, la grabación se detiene sola.
+- No hay límite de duración. Si la PC no alcanza a guardar al ritmo del juego,
+  primero se usan más procesos para comprimir; si aun así la RAM pendiente
+  llega al límite, se repite el cuadro anterior en vez de guardar uno nuevo
+  (como si el juego se trabara un instante) hasta que se libere. La grabación
+  nunca se detiene sola.
 
 Fotos y animaciones comparten la numeración del sufijo:
   doric-001.webp, doric-002.webp, doric-anim_003/doric-anim_003-001.webp …,
@@ -254,7 +258,9 @@ class GrabadorAnimacion:
         self._banco = BancoMemoria()
         self._futuros = []
         self._errores_envio = []
-        self._limitador = Limitador(lambda: HILOS.get(self._modo(), HILOS["juego"]))
+        self._saturado = False  # la RAM pendiente llegó al límite: se repiten cuadros hasta bajar
+        self._omitidos = 0      # cuadros que se repitieron por eso
+        self._limitador = Limitador(self._procesos)
         # Mediciones para diagnosticar (se guardan en info.json de la animación).
         self._intervalos = []   # ms entre cuadros nuevos del juego
         self._costos = []       # ms que tardó tomar cada cuadro nuevo
@@ -282,6 +288,13 @@ class GrabadorAnimacion:
 
     def _modo(self):
         return self.config.get("prioridad", "juego")
+
+    def _procesos(self):
+        """Cuántos cuadros se comprimen a la vez. Si se van juntando, todos los posibles
+        (mejor usar más CPU un rato que llenar la memoria)."""
+        if self._bytes > self.limite * 0.2:
+            return HILOS["grabacion"]
+        return HILOS.get(self._modo(), HILOS["juego"])
 
     # ------------------------------------------------------------------ nombres
 
@@ -311,6 +324,8 @@ class GrabadorAnimacion:
                 continue
             futuro.add_done_callback(lambda f, nombre=nombre, tam=tam: self._terminado(f, nombre, tam))
             self._futuros.append(futuro)
+            if len(self._futuros) > 512:  # grabaciones largas: no acumular los ya terminados
+                self._futuros = [f for f in self._futuros if not f.done()]
 
     def _copiar(self):
         """Hilo: pasa cada cuadro a memoria compartida en cuanto llega.
@@ -331,6 +346,8 @@ class GrabadorAnimacion:
             del arr, item
 
     def _terminado(self, futuro, nombre, tam):
+        if futuro is not None and not futuro.cancelled() and futuro.exception() is not None:
+            self._errores_envio.append(futuro.exception())
         self._banco.devolver(nombre)
         self._limitador.soltar()
         with self._lock:
@@ -359,6 +376,7 @@ class GrabadorAnimacion:
             "fps_del_juego": round(1000 / intervalo, 1) if intervalo else None,
             "descartados_por_llegar_antes": self._descartados,
             "detectados_tarde_absorbidos": self._absorbidos,
+            "repetidos_por_memoria": self._omitidos,
             "captura_ms_mediana": mediana(self._costos),
             "captura_ms_p95": p95(self._costos),
             "monitor_hz": cap.frecuencia_monitor(),
@@ -416,7 +434,7 @@ class GrabadorAnimacion:
         while pendientes:
             _, pendientes = wait(pendientes, timeout=0.5)
             self.avisar("anim_guardando", self.carpeta, self._hechos, self._unicos)
-        errores = self._errores_envio + [f.exception() for f in self._futuros if f.exception() is not None]
+        errores = list(self._errores_envio)
         self._banco.cerrar()
 
         # Cuadros repetidos: copiar el archivo del original (en el AVIF casi no pesan).
@@ -479,6 +497,19 @@ class GrabadorAnimacion:
                 mapa.append(estado["ultimo"])
                 return
             arr = _como_array(datos)  # sin copiar: dxcam ya entrega un arreglo nuevo por cuadro
+            if estado["ultimo"] is not None:
+                # La PC no alcanza a guardar: repetir el anterior hasta que se libere memoria.
+                if self._saturado and self._bytes < self.limite * 0.6:
+                    self._saturado = False
+                elif not self._saturado and self._bytes + arr.nbytes > self.limite:
+                    self._saturado = True
+                    if not self._omitidos:
+                        self.avisar("log", "[!] La PC no alcanza a guardar todos los cuadros: se repetirán "
+                                           "algunos hasta que se ponga al día. La grabación sigue.")
+                if self._saturado:
+                    self._omitidos += 1
+                    mapa.append(estado["ultimo"])
+                    return
             with self._lock:
                 self._bytes += arr.nbytes
                 self._unicos += 1
@@ -548,9 +579,6 @@ class GrabadorAnimacion:
                     proximo_aviso = ahora + AVISAR_CADA_SEG
                     self.avisar("anim_progreso", len(mapa), ahora - t0)
                     cap.prioridad_hilo(self._modo(), captura=True)  # sigue el modo si se cambia
-                if self._bytes > self.limite:
-                    motivo = "límite de memoria"
-                    break
 
             # Completar hasta el momento en que se detuvo.
             if por_eventos and mapa:
