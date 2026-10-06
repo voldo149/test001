@@ -77,21 +77,110 @@ BOTONES = {
 UMBRAL_GATILLO = 128
 
 
+# Teclas del teclado: se guardan como "VK:0x78" (código de tecla de Windows) y
+# ocupan bits por encima de los del mando (1 << (BIT_TECLADO + código)).
+BIT_TECLADO = 32
+VK_ESC = 0x1B
+_MODIFICADORES = {0x11: "Ctrl", 0x10: "Shift", 0x12: "Alt"}
+_NOMBRES_TECLAS = {
+    0x08: "Retroceso", 0x09: "Tab", 0x0D: "Enter", 0x13: "Pausa", 0x14: "BloqMayús", 0x1B: "Esc",
+    0x20: "Espacio", 0x21: "RePág", 0x22: "AvPág", 0x23: "Fin", 0x24: "Inicio", 0x25: "←", 0x26: "↑",
+    0x27: "→", 0x28: "↓", 0x2C: "ImprPant", 0x2D: "Insert", 0x2E: "Supr", 0x6A: "Num *", 0x6B: "Num +",
+    0x6D: "Num −", 0x6E: "Num .", 0x6F: "Num /", 0x90: "BloqNum", 0x91: "BloqDespl",
+}
+# Teclas que se revisan al asignar: todas menos botones del mouse, Ctrl/Shift/Alt izquierdo
+# y derecho (se usan los genéricos) y las teclas de Windows.
+_TECLAS_ASIGNABLES = [vk for vk in range(0x08, 0xFF)
+                      if vk not in (0x5B, 0x5C, 0x5D) and not 0xA0 <= vk <= 0xA5 and vk not in (0x0A, 0x0B, 0x0E, 0x0F)]
+
+
+def nombre_tecla(vk):
+    if vk in _MODIFICADORES:
+        return _MODIFICADORES[vk]
+    if vk in _NOMBRES_TECLAS:
+        return _NOMBRES_TECLAS[vk]
+    if 0x30 <= vk <= 0x39 or 0x41 <= vk <= 0x5A:
+        return chr(vk)
+    if 0x60 <= vk <= 0x69:
+        return f"Num {vk - 0x60}"
+    if 0x70 <= vk <= 0x87:
+        return f"F{vk - 0x6F}"
+    if os.name == "nt":  # teclas de símbolos: pedirle el nombre a Windows (depende del idioma)
+        try:
+            u32 = ctypes.windll.user32
+            buf = ctypes.create_unicode_buffer(32)
+            if u32.GetKeyNameTextW(u32.MapVirtualKeyW(vk, 0) << 16, buf, 32):
+                return buf.value
+        except Exception:
+            pass
+    return f"Tecla {vk:#04x}"
+
+
+def es_tecla(nombre):
+    return nombre.startswith("VK:")
+
+
+def _vk(nombre):
+    return int(nombre[3:], 16)
+
+
 def mascara_a_nombres(mascara):
-    return [n for n, bit in BOTONES.items() if mascara & bit]
+    nombres = [n for n, bit in BOTONES.items() if mascara & bit]
+    teclas = [vk for vk in range(256) if mascara >> (BIT_TECLADO + vk) & 1]
+    # Ctrl / Shift / Alt primero, como se escriben normalmente (Ctrl + Shift + S).
+    teclas.sort(key=lambda vk: (vk not in _MODIFICADORES, list(_MODIFICADORES).index(vk) if vk in _MODIFICADORES else vk))
+    return nombres + [f"VK:{vk:#04x}" for vk in teclas]
 
 
 def nombres_a_mascara(nombres):
     mascara = 0
     for n in nombres:
-        if n not in BOTONES:
+        if es_tecla(n):
+            mascara |= 1 << (BIT_TECLADO + _vk(n))
+        elif n in BOTONES:
+            mascara |= BOTONES[n]
+        else:
             raise ValueError(f"Botón desconocido en config.json: {n}")
-        mascara |= BOTONES[n]
     return mascara
 
 
+def teclas_de(nombres):
+    """Códigos de tecla que usa una combinación."""
+    return {_vk(n) for n in nombres if es_tecla(n)}
+
+
 def texto_combo(nombres):
-    return " + ".join(nombres)
+    return " + ".join(nombre_tecla(_vk(n)) if es_tecla(n) else n for n in nombres)
+
+
+class Teclado:
+    """Lee el teclado aunque el juego tenga el foco (GetAsyncKeyState)."""
+
+    def __init__(self):
+        self._u32 = ctypes.windll.user32 if os.name == "nt" else None
+
+    def _presionadas(self, vks):
+        if self._u32 is None:
+            return []
+        leer = self._u32.GetAsyncKeyState
+        return [vk for vk in vks if leer(vk) & 0x8000]
+
+    def leer(self, vks):
+        """Máscara con las teclas indicadas que están presionadas (solo se revisan esas)."""
+        mascara = 0
+        for vk in self._presionadas(vks):
+            mascara |= 1 << (BIT_TECLADO + vk)
+        return mascara
+
+    def leer_para_asignar(self):
+        """(máscara de todas las teclas asignables presionadas, ¿Esc presionado?)."""
+        presionadas = self._presionadas(_TECLAS_ASIGNABLES)
+        esc = VK_ESC in presionadas
+        mascara = 0
+        for vk in presionadas:
+            if vk != VK_ESC:
+                mascara |= 1 << (BIT_TECLADO + vk)
+        return mascara, esc
 
 
 # --------------------------------------------------------------------------

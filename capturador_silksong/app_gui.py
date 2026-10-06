@@ -663,6 +663,10 @@ class Escucha(threading.Thread):
             acciones["anim"] = ("anim", None)
         self.acciones = acciones
         self.detector = cap.DetectorAtajos(atajos, self.config["espera_entre_fotos"])
+        # Solo se revisan las teclas que usa algún atajo (revisar todas cada 8 ms sería un gasto inútil).
+        self._vks = set()
+        for a in atajos:
+            self._vks |= cap.teclas_de(a["botones"])
 
     def _guardada(self, ruta, img):
         try:
@@ -677,6 +681,8 @@ class Escucha(threading.Thread):
             self._avisar("error", f"No se puede leer el mando: {e}")
             return
 
+        teclado = cap.Teclado()
+        self._vks = set()
         capturador = None
         try:
             capturador = cap.Capturador(self.config["motor"], self.config["monitor"])
@@ -710,6 +716,14 @@ class Escucha(threading.Thread):
 
             if self._grabar:
                 # Espera a que se suelte todo, junta lo que se presione y confirma al soltar.
+                teclas, esc = teclado.leer_para_asignar()
+                if esc:  # Esc: salir sin asignar (y nunca se puede usar como atajo)
+                    self._grabar = False
+                    self._recargar = True
+                    self._avisar("combo_cancelado")
+                    time.sleep(cap.INTERVALO_LECTURA)
+                    continue
+                m |= teclas
                 if estado_grabar is None:
                     estado_grabar, acumulado = "soltar", 0
                 if estado_grabar == "soltar":
@@ -723,6 +737,8 @@ class Escucha(threading.Thread):
                     self._avisar("combo", acumulado)
             else:
                 estado_grabar = None
+                if self._vks:
+                    m |= teclado.leer(self._vks)
                 if self._recargar:
                     self._recargar = False
                     self._construir_detector()
@@ -1499,6 +1515,8 @@ class App:
                     self._captura(evento[1])
                 elif tipo == "timer_global":
                     self._timer_global(evento[1])
+                elif tipo == "combo_cancelado":
+                    self._cancelar_grabacion()
                 elif tipo == "combo":
                     self._combo_grabado(evento[1])
                 elif tipo == "miniaturas":
@@ -1536,15 +1554,20 @@ class App:
         d.transient(self.root)
         d.resizable(False, False)
         poner_icono(d)
+        arriba = ctk.CTkFrame(d, fg_color="transparent")
+        arriba.pack(fill="x", padx=8, pady=(8, 0))
+        boton(arriba, "✕", self._cancelar_grabacion, "fantasma", width=30, height=28,
+              font=fuente(14, "bold")).pack(side="right")
         cuerpo = ctk.CTkFrame(d, fg_color="transparent")
-        cuerpo.pack(padx=30, pady=24)
-        ctk.CTkLabel(cuerpo, text="🎮", font=fuente(40)).pack()
+        cuerpo.pack(padx=36, pady=(0, 26))
+        ctk.CTkLabel(cuerpo, text="🎮  ⌨", font=fuente(34)).pack()
         ctk.CTkLabel(cuerpo, text=titulo, font=fuente(16, "bold"), text_color=TEXTO).pack(pady=(6, 0))
-        ctk.CTkLabel(cuerpo, text="Presiona el botón (o mantén una combinación) en el mando.\n"
-                                  "Al soltar todo, se guardará.",
-                     font=fuente(13), text_color=TENUE, justify="center").pack(pady=(6, 16))
-        boton(cuerpo, "Cancelar", self._cancelar_grabacion, "normal", width=120).pack()
+        ctk.CTkLabel(cuerpo, text="Presiona el atajo: un botón del mando o una tecla\n"
+                                  "(o mantén una combinación y suelta).",
+                     font=fuente(13), text_color=TENUE, justify="center").pack(pady=(6, 4))
+        ctk.CTkLabel(cuerpo, text="Esc para salir", font=fuente(12, "bold"), text_color=TENUE).pack()
         d.protocol("WM_DELETE_WINDOW", self._cancelar_grabacion)
+        d.bind("<Escape>", lambda e: self._cancelar_grabacion())
         self._dialogo_grabar = d
 
         def centrar():
@@ -1587,12 +1610,18 @@ class App:
                 Dialogo.mostrar(self.root, "Combinación ocupada",
                                 f"{cap.texto_combo(nombres)} ya está asignado a «{dueno['nombre']}».")
                 return
-        if len(nombres) == 1 and not Dialogo.confirmar(
-                self.root, f"Detectado: {nombres[0]}",
-                "Un solo botón también lo usa el juego. Una combinación como BACK + RB evita "
-                "disparos accidentales.\n\n¿Usarlo de todos modos?", si="Usarlo"):
+        if len(nombres) == 1 and not self._unico_seguro(nombres[0]) and not Dialogo.confirmar(
+                self.root, f"Detectado: {cap.texto_combo(nombres)}",
+                "Un solo botón o tecla también lo usa el juego (o al escribir). Una combinación como "
+                "BACK + RB o una tecla F (F9, F10…) evita disparos accidentales.\n\n¿Usarlo de todos modos?",
+                si="Usarlo"):
             return
         al_terminar(nombres)
+
+    @staticmethod
+    def _unico_seguro(nombre):
+        """Teclas sueltas que casi ningún juego usa: F1-F24, ImprPant, Pausa, BloqDespl, Insert."""
+        return cap.es_tecla(nombre) and (0x70 <= cap._vk(nombre) <= 0x87 or cap._vk(nombre) in (0x13, 0x2C, 0x2D, 0x91))
 
     def _pedir_nombre(self, titulo, mensaje, sugerido):
         nombre = Dialogo.mostrar(self.root, titulo, mensaje,
@@ -1608,10 +1637,11 @@ class App:
     # ------------------------------------------------------------------ fotos
 
     def agregar_foto(self):
-        nombre = self._pedir_nombre("Nuevo atajo de foto", "¿Cómo se llamará este atajo?",
-                                    f"foto{len(self.config['atajos']) + 1}")
-        if not nombre:
-            return
+        usados = {a["nombre"] for a in self.config["atajos"]}
+        n = 1
+        while f"Atajo {n}" in usados:
+            n += 1
+        nombre = f"Atajo {n}"
 
         def listo(botones):
             self.config["atajos"].append({"nombre": nombre, "botones": botones})
@@ -1619,7 +1649,7 @@ class App:
             self.escucha.recargar()
             self._refrescar_fotos()
             self.log(f"Atajo de foto '{nombre}' = {cap.texto_combo(botones)}")
-        self._grabar_combo("Atajo de foto", listo)
+        self._grabar_combo("Nuevo atajo de foto", listo)
 
     def borrar_foto(self, nombre):
         if not Dialogo.confirmar(self.root, "Borrar atajo", f"¿Borrar el atajo «{nombre}»?",

@@ -50,7 +50,8 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 - **+ Temporizador:** escribe el nombre de la actividad (por ejemplo, el juego). Se inicia y se para con el atajo de temporizador o con el botón **Iniciar / Parar** de su tarjeta.
 - Mientras corre un temporizador, el título de la ventana en la barra de tareas muestra el tiempo.
-- **+ Atajo de foto:** escribe un nombre y presiona el botón o la combinación.
+- **+ Atajo de foto:** aparece "Presiona el atajo": presiona un **botón del mando o una tecla** (o mantén una combinación y suelta). Se guarda como "Atajo 1", "Atajo 2", etc. **Esc** o la **✕** salen sin asignar.
+- **Atajos con teclado:** sirven para juegos que se juegan con teclado. Funcionan aunque el juego tenga el foco. Por ejemplo `F9` o `Ctrl + Shift + S`. Esc nunca se puede asignar. Las teclas F (F9, F10…) son las más seguras porque casi ningún juego las usa; si eliges una tecla suelta como una letra, la app te pregunta antes, porque también se dispararía al escribir. Los atajos de temporizador y de animación también aceptan teclado.
 - **Ver historial:** abre `tiempos.csv` en Excel, con una fila por sesión (actividad, inicio, fin, duración).
 - Cada tarjeta muestra el tiempo de la sesión en marcha y los totales de hoy, de la semana y de siempre.
 
