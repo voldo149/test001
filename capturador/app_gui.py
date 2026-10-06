@@ -1004,24 +1004,42 @@ class App:
                                  text_color=TEXTO, fg_color=BORDE, progress_color=VERDE_BORDE,
                                  button_color=TEXTO, button_hover_color="#ffffff")
 
+        # Fotos
+        cab, self.ins_atajos = titulo_seccion(der, "Atajos de foto", "0")
+        cab.pack(pady=(18, 10), **pad)
+        self.lista_atajos = ctk.CTkFrame(der, fg_color="transparent")
+        self.lista_atajos.pack(**pad)
+        self.lista_atajos.grid_columnconfigure(0, weight=1)
+        boton(der, "+  Atajo de foto", self.agregar_foto, "normal", anchor="w",
+              font=fuente(13)).pack(pady=(8, 10), **pad)
+        # Autoshot: foto automática cada N segundos
+        fila_auto = ctk.CTkFrame(der, fg_color="transparent")
+        fila_auto.pack(pady=(8, 0), **pad)
+        self.var_autoshot = tk.BooleanVar(value=self.config["autoshot"])
+        ctk.CTkSwitch(fila_auto, text="Autoshot", variable=self.var_autoshot, command=self._cambiar_autoshot,
+                      font=fuente(13), text_color=TEXTO, fg_color=BORDE, progress_color=VERDE_BORDE,
+                      button_color=TEXTO, button_hover_color="#ffffff").pack(side="left")
+        boton(fila_auto, "+", lambda: self._paso_autoshot(+1), "normal", width=32, height=30,
+              font=fuente(15, "bold")).pack(side="right")
+        self.lbl_autoshot_seg = ctk.CTkLabel(fila_auto, text="", font=fuente(13, "bold"), text_color=TEXTO, width=44)
+        self.lbl_autoshot_seg.pack(side="right")
+        boton(fila_auto, "−", lambda: self._paso_autoshot(-1), "normal", width=32, height=30,
+              font=fuente(15, "bold")).pack(side="right")
+        self.lbl_autoshot = ctk.CTkLabel(der, text="", font=fuente(11), text_color=TENUE, anchor="w",
+                                         wraplength=270, justify="left")
+        self.lbl_autoshot.pack(pady=(2, 0), **pad)
+        self._mostrar_autoshot()
+
+        separador(der).pack(pady=20, **pad)
+
         # Atajo global de temporizador
         cab, _ = titulo_seccion(der, "Atajo de temporizador", "Todos")
-        cab.pack(pady=(18, 4), **pad)
+        cab.pack(pady=(0, 4), **pad)
         ctk.CTkLabel(der, text="Inicia o para el temporizador seleccionado.", font=fuente(12),
                      text_color=TENUE, anchor="w").pack(pady=(0, 8), **pad)
         self.fila_global = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
                                         border_color=BORDE)
         self.fila_global.pack(**pad)
-        ctk.CTkLabel(der, text="Pausa automática sin fotos", font=fuente(12), text_color=TENUE,
-                     anchor="w").pack(pady=(12, 4), **pad)
-        opciones_pausa = {"No": 0, "3 min": 3, "5 min": 5, "10 min": 10}
-        self.seg_pausa = ctk.CTkSegmentedButton(
-            der, values=list(opciones_pausa), height=34, corner_radius=8, font=fuente(12),
-            command=lambda v: self._cambiar_pausa(opciones_pausa[v]),
-            fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
-            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_pausa.set(next((k for k, v in opciones_pausa.items() if v == self.config["pausa_auto_min"]), "5 min"))
-        self.seg_pausa.pack(**pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1046,37 +1064,6 @@ class App:
 
         separador(der).pack(pady=20, **pad)
 
-        # Fotos
-        cab, self.ins_atajos = titulo_seccion(der, "Atajos de foto", "0")
-        cab.pack(pady=(0, 10), **pad)
-        self.lista_atajos = ctk.CTkFrame(der, fg_color="transparent")
-        self.lista_atajos.pack(**pad)
-        self.lista_atajos.grid_columnconfigure(0, weight=1)
-        boton(der, "+  Atajo de foto", self.agregar_foto, "normal", anchor="w",
-              font=fuente(13)).pack(pady=(8, 10), **pad)
-        self.var_solo_timer = tk.BooleanVar(value=self.config["fotos_solo_con_timer"])
-        interruptor("Solo con temporizador activo", self.var_solo_timer).pack(pady=5, **pad)
-
-        # Autoshot: foto automática cada N segundos
-        fila_auto = ctk.CTkFrame(der, fg_color="transparent")
-        fila_auto.pack(pady=(8, 0), **pad)
-        self.var_autoshot = tk.BooleanVar(value=self.config["autoshot"])
-        ctk.CTkSwitch(fila_auto, text="Autoshot", variable=self.var_autoshot, command=self._cambiar_autoshot,
-                      font=fuente(13), text_color=TEXTO, fg_color=BORDE, progress_color=VERDE_BORDE,
-                      button_color=TEXTO, button_hover_color="#ffffff").pack(side="left")
-        boton(fila_auto, "+", lambda: self._paso_autoshot(+1), "normal", width=32, height=30,
-              font=fuente(15, "bold")).pack(side="right")
-        self.lbl_autoshot_seg = ctk.CTkLabel(fila_auto, text="", font=fuente(13, "bold"), text_color=TEXTO, width=44)
-        self.lbl_autoshot_seg.pack(side="right")
-        boton(fila_auto, "−", lambda: self._paso_autoshot(-1), "normal", width=32, height=30,
-              font=fuente(15, "bold")).pack(side="right")
-        self.lbl_autoshot = ctk.CTkLabel(der, text="", font=fuente(11), text_color=TENUE, anchor="w",
-                                         wraplength=270, justify="left")
-        self.lbl_autoshot.pack(pady=(2, 0), **pad)
-        self._mostrar_autoshot()
-
-        separador(der).pack(pady=20, **pad)
-
         cab, _ = titulo_seccion(der, "Formato", "Fotos")
         cab.pack(pady=(0, 10), **pad)
         self.seg_formato = ctk.CTkSegmentedButton(
@@ -1094,6 +1081,22 @@ class App:
         self.seg_resolucion.set("720p" if self.config["resolucion"] == "720p" else "Nativa")
         self.seg_resolucion.pack(**pad)
 
+        separador(der).pack(pady=20, **pad)
+
+        cab, _ = titulo_seccion(der, "Más opciones")
+        cab.pack(pady=(0, 6), **pad)
+        self.var_solo_timer = tk.BooleanVar(value=self.config["fotos_solo_con_timer"])
+        interruptor("Capturar solo con temporizador", self.var_solo_timer).pack(pady=5, **pad)
+        ctk.CTkLabel(der, text="Pausa automática sin fotos", font=fuente(12), text_color=TENUE,
+                     anchor="w").pack(pady=(12, 4), **pad)
+        opciones_pausa = {"No": 0, "3 min": 3, "5 min": 5, "10 min": 10}
+        self.seg_pausa = ctk.CTkSegmentedButton(
+            der, values=list(opciones_pausa), height=34, corner_radius=8, font=fuente(12),
+            command=lambda v: self._cambiar_pausa(opciones_pausa[v]),
+            fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
+            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
+        self.seg_pausa.set(next((k for k, v in opciones_pausa.items() if v == self.config["pausa_auto_min"]), "5 min"))
+        self.seg_pausa.pack(**pad)
         ctk.CTkLabel(der, text="Carpeta general", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
         fila = ctk.CTkFrame(der, fg_color="transparent")
         fila.pack(**pad)
