@@ -81,6 +81,10 @@ def registrar_error(texto):
         f.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}]\n{texto}\n")
 
 
+def texto_espera(segundos):
+    return f"{segundos} s" if segundos < 60 else f"{segundos // 60} min"
+
+
 def ruta_corta(ruta, maximo=40):
     return ruta if len(ruta) <= maximo else "…" + ruta[-(maximo - 1):]
 
@@ -362,8 +366,12 @@ class TarjetaTimer(ctk.CTkFrame):
             else:
                 widget.pack_forget()
 
-    def actualizar(self, corriendo, seleccionado, atajo, actual, hoy, semana, total, pausado=False):
+    def actualizar(self, corriendo, seleccionado, atajo, actual, hoy, semana, total, pausado=False,
+                   en_ventana=False):
+        # en_ventana: en pausa solo mientras usas la app; para todo lo demás sigue en marcha.
         self._poner("reloj", self.reloj, text=actual, text_color=VERDE if corriendo else TENUE)
+        if en_ventana:
+            corriendo, pausado = True, False
         if seleccionado:
             self._poner("borde", self, border_color=VERDE, border_width=2)
         else:
@@ -380,7 +388,10 @@ class TarjetaTimer(ctk.CTkFrame):
         self._poner("cancelar_txt", self.btn_cancelar, text="Terminar" if pausado else "Cancelar",
                     text_color=TENUE if pausado else ROJO)
         estado = "● EN MARCHA" if corriendo else ("⏸ EN PAUSA" if pausado else "DETENIDO")
-        self._poner("estado", self.estado, text=estado, text_color=VERDE if corriendo else TENUE)
+        if en_ventana:
+            estado = "⏸ PAUSA: USANDO LA APP"
+        self._poner("estado", self.estado, text=estado,
+                    text_color=VERDE if corriendo and not en_ventana else TENUE)
         if pausado:
             self._poner("btn", self.btn, text="▶  Reanudar", fg_color=TARJETA, hover_color=TARJETA_HOVER,
                         text_color=TEXTO, border_color=BORDE)
@@ -395,7 +406,11 @@ class TarjetaTimer(ctk.CTkFrame):
 
 
 class DialogoRecorte(ctk.CTkToplevel):
-    """Elegir dónde empieza y termina una animación y crear su AVIF con esos cuadros."""
+    """Elegir dónde empieza y termina una animación y crear su AVIF con esos cuadros.
+
+    Se pueden sacar varios AVIF de la misma grabación (por ejemplo, cada patrón de ataque
+    de un jefe): cada uno se guarda como la siguiente foto y el editor sigue abierto.
+    """
 
     TAM_VISTA = (640, 360)
 
@@ -408,6 +423,7 @@ class DialogoRecorte(ctk.CTkToplevel):
         self._pendiente = None
         self._imagen = None
         self._indice_mostrado = 0
+        self._creados = []  # (nombre, primer cuadro, último cuadro) de los AVIF de esta vez
         self.title(f"Recortar {self.carpeta.name}")
         self.resizable(False, False)
         self.transient(app.root)
@@ -416,7 +432,8 @@ class DialogoRecorte(ctk.CTkToplevel):
         cuerpo = ctk.CTkFrame(self, fg_color="transparent")
         cuerpo.pack(padx=22, pady=18)
         ctk.CTkLabel(cuerpo, text=self.carpeta.name, font=fuente(16, "bold"), text_color=TEXTO).pack(anchor="w")
-        ctk.CTkLabel(cuerpo, text="Mueve el inicio y el final para quitar intentos fallidos y esperas. "
+        ctk.CTkLabel(cuerpo, text="Mueve el inicio y el final y pulsa «Crear AVIF»: se guarda como la siguiente "
+                                  "foto y puedes seguir sacando más animaciones de la misma grabación. "
                                   "Los cuadros que borres de la carpeta tampoco se usan.",
                      font=fuente(12), text_color=TENUE, wraplength=640, justify="left").pack(anchor="w", pady=(2, 10))
 
@@ -433,13 +450,16 @@ class DialogoRecorte(ctk.CTkToplevel):
 
         self.lbl_resumen = ctk.CTkLabel(cuerpo, text="", font=fuente(13, "bold"), text_color=VERDE, anchor="w")
         self.lbl_resumen.pack(fill="x", pady=(10, 0))
+        self.lbl_creados = ctk.CTkLabel(cuerpo, text="", font=fuente(12), text_color=TENUE, anchor="w",
+                                        wraplength=640, justify="left")
+        self.lbl_creados.pack(fill="x")
 
         fila = ctk.CTkFrame(cuerpo, fg_color="transparent")
         fila.pack(fill="x", pady=(14, 0))
         boton(fila, "Abrir carpeta", lambda: abrir(self.carpeta), "fantasma", width=10).pack(side="left")
         boton(fila, "Guardar cuadro como foto", self._guardar_foto, "azul", width=10).pack(side="left", padx=(6, 0))
         boton(fila, "Crear AVIF", self._crear, "verde", width=130).pack(side="right")
-        boton(fila, "Cancelar", self.destroy, "normal", width=100).pack(side="right", padx=(0, 8))
+        boton(fila, "Cerrar", self.destroy, "normal", width=100).pack(side="right", padx=(0, 8))
 
         self._actualizar_textos()
         self._mostrar(0)
@@ -526,8 +546,7 @@ class DialogoRecorte(ctk.CTkToplevel):
         self.lbl_inicio.configure(text=self._texto_cuadro(inicio))
         self.lbl_fin.configure(text=self._texto_cuadro(fin))
         n = fin - inicio + 1 if self.cuadros else 0
-        extra = "  ·  se reemplazará el AVIF que ya existe" if self._destino().exists() else ""
-        self.lbl_resumen.configure(text=f"{n} cuadros · {n / self.fps:.2f} s{extra}")
+        self.lbl_resumen.configure(text=f"{n} cuadros · {n / self.fps:.2f} s")
 
     def _guardar_foto(self):
         if self.cuadros:
@@ -548,15 +567,21 @@ class DialogoRecorte(ctk.CTkToplevel):
         except Exception as e:
             self.vista.configure(text=f"No se pudo abrir el cuadro: {e}")
 
-    def _destino(self):
-        return self.carpeta / f"{self.carpeta.name}.avif"
-
     def _crear(self):
         if not self.cuadros:
             return
-        rutas = self.cuadros[self.var_inicio.get():self.var_fin.get() + 1]
-        self.app.crear_avif(self.carpeta, rutas, self._destino(), self.fps)
-        self.destroy()
+        inicio, fin = self.var_inicio.get(), self.var_fin.get()
+        destino = self.app.destino_siguiente_foto(self.carpeta, ".avif")
+        self.app.crear_avif(self.carpeta, self.cuadros[inicio:fin + 1], destino, self.fps)
+        self._creados.append((destino.stem, inicio, fin))
+        self.lbl_creados.configure(text="Creados: " + "  ·  ".join(
+            f"{nombre} (cuadros {a + 1}–{b + 1})" for nombre, a, b in self._creados))
+        # Lo normal es avanzar por la pelea: el siguiente recorte empieza donde terminó este.
+        if fin < self._maximo:
+            self.var_inicio.set(fin + 1)
+            self.var_fin.set(self._maximo)
+            self._actualizar_textos()
+            self._mostrar(fin + 1)
 
 
 # --------------------------------------------------------------------------
@@ -577,6 +602,7 @@ class Escucha(threading.Thread):
         self._detener = threading.Event()
         self.hay_timer = False  # la ventana lo actualiza: ¿hay algún temporizador en marcha o en pausa?
         self.timer_corriendo = False  # solo en marcha (no en pausa): para el autoshot
+        self.en_ventana = False  # el usuario está usando la app: sin autoshot
         self.autoshots = 0
         self.grabador = None    # animación en curso (o guardándose)
         self.grabadores = []    # todas las que aún no terminan de guardarse
@@ -773,7 +799,7 @@ class Escucha(threading.Thread):
             # Autoshot: una foto cada N segundos mientras corre un temporizador (no en pausa).
             permitido = self.timer_corriendo or not self.config.get("fotos_solo_con_timer", True)
             if (self.config.get("autoshot") and permitido and capturador is not None
-                    and not self.grabando_animacion and not self._grabar):
+                    and not self.grabando_animacion and not self._grabar and not self.en_ventana):
                 intervalo = max(1.0, float(self.config.get("autoshot_seg", 3)))
                 if proximo_auto is None:
                     proximo_auto = ahora + intervalo  # la primera, un intervalo después de activarlo
@@ -804,13 +830,15 @@ class App:
         self.config.setdefault("timer_seleccionado", None)
         self.config.setdefault("sonido_anim", True)
         self.config.setdefault("sonido_sin_timer", True)
-        self.config.setdefault("pausa_auto_min", 5)
+        if "pausa_auto_seg" not in self.config:  # antes era en minutos; ahora 30 s por defecto
+            self.config["pausa_auto_seg"] = 30 if self.config.pop("pausa_auto_min", 5) else 0
         self.config.setdefault("avisos_pantalla", True)
         self.config.setdefault("volumen", 3)
         self.config.setdefault("autoshot", False)
         self.config.setdefault("autoshot_seg", 3)
         sonidos.volumen = self.config["volumen"]
         self._ultima_foto = {}  # temporizador -> última foto/animación de la sesión
+        self._pausados_por_foco = set()  # en pausa solo mientras se usa la ventana
         self.config.setdefault("anim_fps", 60)
         if self.config.get("version_config", 1) < 2:
             # Desde esta versión el AVIF se crea después de recortar, no al terminar de grabar.
@@ -978,8 +1006,10 @@ class App:
 
         cab, self.ins_activos = titulo_seccion(centro, "Temporizadores", "0 activos")
         cab.grid(row=0, column=0, sticky="ew", padx=28, pady=(22, 2))
-        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla (otro clic la quita). El atajo inicia y para la seleccionada.",
-                     font=fuente(12), text_color=TENUE, anchor="w").grid(row=1, column=0, sticky="ew", padx=28)
+        ctk.CTkLabel(centro, text="Clic en una tarjeta para seleccionarla (otro clic la quita). El atajo inicia y para la seleccionada. "
+                                  "Mientras usas esta ventana, el tiempo y el autoshot se pausan.",
+                     font=fuente(12), text_color=TENUE, anchor="w", justify="left",
+                     wraplength=620).grid(row=1, column=0, sticky="ew", padx=28)
 
         self.grilla_timers = ctk.CTkScrollableFrame(centro, fg_color="transparent",
                                                     scrollbar_button_color=BORDE,
@@ -1061,6 +1091,8 @@ class App:
         self.seg_salida.pack(**pad)
         ctk.CTkLabel(der, text="Con «Cuadros», haz clic en la animación para recortarla y crear el AVIF.",
                      font=fuente(11), text_color=TENUE, anchor="w", wraplength=270, justify="left").pack(pady=(6, 0), **pad)
+        boton(der, "Recortar carpeta de cuadros…", self.recortar_carpeta, "normal",
+              height=36).pack(pady=(10, 0), **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1089,13 +1121,13 @@ class App:
         interruptor("Capturar solo con temporizador", self.var_solo_timer).pack(pady=5, **pad)
         ctk.CTkLabel(der, text="Pausa automática sin fotos", font=fuente(12), text_color=TENUE,
                      anchor="w").pack(pady=(12, 4), **pad)
-        opciones_pausa = {"No": 0, "3 min": 3, "5 min": 5, "10 min": 10}
+        opciones_pausa = {"No": 0, "30 s": 30, "1 min": 60, "3 min": 180, "5 min": 300}
         self.seg_pausa = ctk.CTkSegmentedButton(
             der, values=list(opciones_pausa), height=34, corner_radius=8, font=fuente(12),
             command=lambda v: self._cambiar_pausa(opciones_pausa[v]),
             fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
             unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_pausa.set(next((k for k, v in opciones_pausa.items() if v == self.config["pausa_auto_min"]), "5 min"))
+        self.seg_pausa.set(next((k for k, v in opciones_pausa.items() if v == self.config["pausa_auto_seg"]), "30 s"))
         self.seg_pausa.pack(**pad)
         ctk.CTkLabel(der, text="Carpeta general", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(16, 4), **pad)
         fila = ctk.CTkFrame(der, fg_color="transparent")
@@ -1224,11 +1256,11 @@ class App:
         self.root.lift()
         self.root.focus_force()
 
-    def _cambiar_pausa(self, minutos):
-        self.config["pausa_auto_min"] = minutos
+    def _cambiar_pausa(self, segundos):
+        self.config["pausa_auto_seg"] = segundos
         self._guardar()
-        if minutos:
-            self.log(f"Pausa automática: tras {minutos} min sin fotos (cuenta hasta la última foto).")
+        if segundos:
+            self.log(f"Pausa automática: tras {texto_espera(segundos)} sin fotos (cuenta hasta la última foto).")
         else:
             self.log("Pausa automática desactivada.")
 
@@ -1347,6 +1379,7 @@ class App:
                 self.log(f"■ '{nombre}' detenido por suspensión de la PC: "
                          f"{formato_duracion(duracion.total_seconds())}")
         self._ultimo_tick = ahora
+        self._pausa_por_ventana(ahora)
         self._revisar_pausa_automatica(ahora)
         self._actualizar_indicador()
         # Se puede tomar foto con un temporizador en marcha o en pausa (la foto lo reanuda).
@@ -1364,7 +1397,7 @@ class App:
                 formato_duracion(self.registro.total_hoy(nombre, ahora)),
                 formato_duracion(self.registro.total_semana(nombre, ahora)),
                 formato_duracion(self.registro.total(nombre, ahora=ahora)),
-                pausado=pausado,
+                pausado=pausado, en_ventana=pausado and nombre in self._pausados_por_foco,
             )
             if corriendo:
                 en_marcha.append(f"▶ {nombre} {actual}")
@@ -1384,18 +1417,52 @@ class App:
         if reprogramar:
             self.root.after(500, self._refrescar_tiempos)
 
+    def _ventana_activa(self):
+        """¿Está el usuario en esta app (la ventana o uno de sus diálogos)?"""
+        try:
+            if os.name == "nt":
+                pid = ctypes.c_ulong()
+                ctypes.windll.user32.GetWindowThreadProcessId(ctypes.windll.user32.GetForegroundWindow(),
+                                                              ctypes.byref(pid))
+                return pid.value == os.getpid()
+            return bool(str(self.root.tk.call("focus", "-displayof", self.root)))
+        except Exception:
+            return False
+
+    def _pausa_por_ventana(self, ahora):
+        """Mientras usas la app no corre el tiempo ni el autoshot; al volver al juego, siguen."""
+        activa = self._ventana_activa()
+        self.escucha.en_ventana = activa
+        if activa:
+            if not self.escucha.grabando_animacion:
+                for nombre in list(self.registro.en_curso):
+                    self.registro.pausar(nombre, ahora)
+                    self._pausados_por_foco.add(nombre)
+        elif self._pausados_por_foco:
+            for nombre in self._pausados_por_foco:
+                if self.registro.en_pausa(nombre):
+                    self.registro.reanudar(nombre, ahora)
+                    if nombre in self._ultima_foto:
+                        self._ultima_foto[nombre] = ahora  # el rato en la app no cuenta como inactividad
+            self._pausados_por_foco.clear()
+
+    def _activo(self, nombre):
+        """En marcha para el usuario (aunque esté en pausa solo porque usa la app)."""
+        return self.registro.corriendo(nombre) or (nombre in self._pausados_por_foco
+                                                   and self.registro.en_pausa(nombre))
+
     def _revisar_pausa_automatica(self, ahora):
-        """Si pasan N minutos sin fotos, pausar contando solo hasta la última foto."""
-        minutos = self.config.get("pausa_auto_min", 5)
-        if not minutos or self.escucha.grabando_animacion:
+        """Si pasan N segundos sin fotos, pausar contando solo hasta la última foto."""
+        segundos = self.config.get("pausa_auto_seg", 30)
+        if not segundos or self.escucha.grabando_animacion:
             return
         for nombre in list(self.registro.en_curso):
             ultima = self._ultima_foto.get(nombre)
             # Solo después de la primera foto de la sesión: un temporizador sin fotos
             # (por ejemplo «escribir») nunca se pausa solo.
-            if ultima and (ahora - ultima).total_seconds() > minutos * 60:
+            if ultima and (ahora - ultima).total_seconds() > segundos:
                 self.registro.pausar(nombre, ultima)
-                self.log(f"⏸ '{nombre}' en pausa: {minutos} min sin fotos. Se contó hasta la última foto; "
+                self.log(f"⏸ '{nombre}' en pausa: {texto_espera(segundos)} sin fotos. Se contó hasta la última foto; "
                          "la próxima foto lo reanuda.")
 
     def _captura(self, momento):
@@ -1408,7 +1475,7 @@ class App:
         self._refrescar_tiempos(reprogramar=False)
 
     def accion_secundaria(self, nombre):
-        if self.registro.en_pausa(nombre):
+        if self.registro.en_pausa(nombre) and not self._activo(nombre):
             self.registro.parar(nombre)
             self._ultima_foto.pop(nombre, None)
             self.log(f"■ '{nombre}' terminado (estaba en pausa)")
@@ -1541,7 +1608,7 @@ class App:
                         self.log(f"[!] No se pudo crear el AVIF de {carpeta.name}: {error}")
                     else:
                         self.log(f"✓ {destino.name}: {n} cuadros, {destino.stat().st_size / 1e6:.2f} MB")
-                        self._dibujar_miniaturas()
+                        self._insertar_miniatura(destino, n)
                 elif tipo.startswith("anim_"):
                     self._evento_animacion(tipo, evento[1:])
         except queue.Empty:
@@ -1748,7 +1815,7 @@ class App:
         if nombre is None or self._timer(nombre) is None:
             self.log("[!] Selecciona un temporizador para usar el atajo global.")
             return
-        if not self.registro.corriendo(nombre):
+        if not self._activo(nombre):
             for otro in list(self.registro.en_curso):
                 self._alternar_timer(otro, momento)
             for otro in list(self.registro.pausados):
@@ -1757,27 +1824,61 @@ class App:
                     self._ultima_foto.pop(otro, None)
         self._alternar_timer(nombre, momento, desde_mando=True)
 
+    def recortar_carpeta(self):
+        """Abrir el editor de recorte con cualquier carpeta de cuadros (por ejemplo, una grabación vieja)."""
+        inicial = str(cap.carpeta_actual(self.config))
+        carpeta = filedialog.askdirectory(initialdir=inicial, title="Carpeta con los cuadros de la animación")
+        if not carpeta:
+            return
+        try:
+            hay = bool(animacion.cuadros_de(carpeta))
+        except OSError as e:
+            Dialogo.mostrar(self.root, "Recortar", f"No se pudo abrir la carpeta:\n{e}")
+            return
+        if not hay:
+            Dialogo.mostrar(self.root, "Recortar", "Esa carpeta no tiene cuadros (PNG, JPG o WEBP).")
+            return
+        DialogoRecorte(self, carpeta)
+
+    def destino_siguiente_foto(self, carpeta, extension):
+        """Ruta con el siguiente número para algo sacado de una carpeta de cuadros.
+
+        Si la carpeta es una animación grabada aquí (doric-anim_003), va junto a ella con su
+        sufijo; si es una carpeta cualquiera, va a la carpeta de guardado actual."""
+        carpeta = Path(carpeta)
+        if "-anim_" in carpeta.name:
+            base, sufijo = carpeta.parent, carpeta.name.rsplit("-anim_", 1)[0]
+        else:
+            base, sufijo = Path(cap.carpeta_actual(self.config)), cap.limpiar_sufijo(self.config.get("sufijo"))
+        base.mkdir(parents=True, exist_ok=True)
+        return base / f"{sufijo}-{cap.reservar_numero(base, sufijo):03d}{extension}"
+
+    def _insertar_miniatura(self, ruta, cuadros=None):
+        """Pone una foto o AVIF recién creado al principio de la lista de la izquierda."""
+        if not self._en_carpeta_mostrada(ruta):
+            return
+        try:
+            with Image.open(ruta) as img:
+                mini = hacer_miniatura(img.convert("RGB"))
+            if cuadros:
+                mini = marcar_animacion(mini, cuadros)
+            self.miniaturas.insert(0, (Path(ruta), mini, cuadros))
+            del self.miniaturas[MAX_MINIATURAS:]
+            self._dibujar_miniaturas()
+        except Exception:
+            pass
+
     def guardar_cuadro_como_foto(self, carpeta, cuadro):
         """Copia un cuadro de la animación como foto suelta, con el siguiente número."""
         carpeta, cuadro = Path(carpeta), Path(cuadro)
-        base = carpeta.parent
-        sufijo = carpeta.name.rsplit("-anim_", 1)[0] if "-anim_" in carpeta.name else \
-            cap.limpiar_sufijo(self.config.get("sufijo"))
-        destino = base / f"{sufijo}-{cap.reservar_numero(base, sufijo):03d}{cuadro.suffix}"
+        destino = self.destino_siguiente_foto(carpeta, cuadro.suffix)
         try:
             shutil.copy2(cuadro, destino)  # copia exacta: sin volver a comprimir
         except OSError as e:
             self.log(f"[!] No se pudo guardar el cuadro: {e}")
             return
         self.log(f"[foto] {destino.name} ← cuadro {cuadro.stem.rsplit('-', 1)[-1]} de {carpeta.name}")
-        if self._en_carpeta_mostrada(destino):
-            try:
-                with Image.open(destino) as img:
-                    self.miniaturas.insert(0, (destino, hacer_miniatura(img.convert("RGB")), None))
-                del self.miniaturas[MAX_MINIATURAS:]
-                self._dibujar_miniaturas()
-            except Exception:
-                pass
+        self._insertar_miniatura(destino)
 
     def crear_avif(self, carpeta, rutas, destino, fps):
         modo = self.config["prioridad"]
@@ -1799,15 +1900,17 @@ class App:
         threading.Thread(target=trabajo, daemon=True).start()
 
     def cancelar_timer(self, nombre):
-        if not self.registro.corriendo(nombre):
+        if not self._activo(nombre):
             return
-        actual = formato_duracion(self.registro.actual(nombre))
+        actual = formato_duracion(self.registro.sesion(nombre))
         if not Dialogo.confirmar(
                 self.root, "Cancelar sesión",
                 f"Se descartarán {actual} de la sesión actual de «{nombre}», como si nunca hubiera "
                 "pasado. Las sesiones anteriores no se tocan.", si="Descartar", estilo="rojo"):
             return
         descartado = self.registro.cancelar(nombre)
+        self._pausados_por_foco.discard(nombre)
+        self._ultima_foto.pop(nombre, None)
         if descartado is not None:
             self.log(f"✕ '{nombre}': sesión cancelada ({formato_duracion(descartado.total_seconds())} descartados)")
         self._refrescar_tiempos(reprogramar=False)
@@ -1868,7 +1971,11 @@ class App:
     def _alternar_timer(self, nombre, momento, desde_mando=False):
         if self._timer(nombre) is None:
             return
+        if self._activo(nombre) and not self.registro.corriendo(nombre):
+            self.registro.reanudar(nombre, momento)  # solo pausado por usar la app: se detiene como uno en marcha
+        self._pausados_por_foco.discard(nombre)
         era_pausa = self.registro.en_pausa(nombre)
+        sesion = self.registro.sesion(nombre, momento)
         corriendo, duracion = self.registro.alternar(nombre, momento)
         if corriendo and era_pausa:
             self._ultima_foto[nombre] = momento  # reanudar cuenta como actividad (si no, se pausaría al instante)
@@ -1877,7 +1984,7 @@ class App:
         if corriendo:
             self.log(f"▶ '{nombre}' {'reanudado' if era_pausa else 'iniciado'}")
         else:
-            self.log(f"■ '{nombre}' detenido: {formato_duracion(duracion.total_seconds())}")
+            self.log(f"■ '{nombre}' detenido: {formato_duracion(sesion)}")
         if desde_mando and self.config["pitido_timers"]:
             pitido(corriendo)
         self._refrescar_tiempos(reprogramar=False)

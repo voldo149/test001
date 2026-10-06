@@ -32,6 +32,7 @@ class RegistroTiempos:
         self.en_curso = {}   # actividad -> inicio
         self.pausados = set()  # en pausa automática (no cuentan, pero la sesión sigue)
         self.previo = {}       # actividad -> segundos de tramos anteriores de esta sesión
+        self.tramos = {}       # actividad -> [(inicio, fin)] de esta sesión, aún sin pasar al CSV
         self.recuperadas = []  # sesiones salvadas de un cierre inesperado
         self.ultimo_latido = None
         self._cargar()
@@ -54,6 +55,10 @@ class RegistroTiempos:
                     continue  # fila editada a mano o dañada: se ignora
 
     def _anotar(self, actividad, inicio, fin):
+        self._escribir(actividad, inicio, fin)
+        self.sesiones.append((actividad, inicio, fin))
+
+    def _escribir(self, actividad, inicio, fin):
         nuevo = not self.archivo.exists()
         with open(self.archivo, "a", encoding="utf-8-sig" if nuevo else "utf-8", newline="") as f:
             w = csv.writer(f)
@@ -67,7 +72,6 @@ class RegistroTiempos:
                 formato_duracion(seg),
                 int(seg),
             ])
-        self.sesiones.append((actividad, inicio, fin))
 
     def _recuperar(self):
         if not self.archivo_en_curso.exists():
@@ -75,18 +79,25 @@ class RegistroTiempos:
         try:
             datos = json.loads(self.archivo_en_curso.read_text(encoding="utf-8"))
             latido = datetime.fromisoformat(datos["latido"])
+            salvado = {}
+            for actividad, tramos in datos.get("tramos", {}).items():  # tramos antes de pausas
+                for inicio_txt, fin_txt in tramos:
+                    inicio, fin = datetime.fromisoformat(inicio_txt), datetime.fromisoformat(fin_txt)
+                    self._anotar(actividad, inicio, fin)
+                    salvado[actividad] = salvado.get(actividad, timedelta()) + (fin - inicio)
             for actividad, inicio_txt in datos.get("timers", {}).items():
                 inicio = datetime.fromisoformat(inicio_txt)
                 if latido > inicio:
                     self._anotar(actividad, inicio, latido)
-                    self.recuperadas.append((actividad, latido - inicio))
+                    salvado[actividad] = salvado.get(actividad, timedelta()) + (latido - inicio)
+            self.recuperadas.extend(salvado.items())
         except (ValueError, KeyError, OSError):
             pass
         self.archivo_en_curso.unlink(missing_ok=True)
 
     def latido(self, ahora=None):
         """Guarda qué temporizadores están en marcha (llamar cada ~30 s)."""
-        if not self.en_curso:
+        if not self.en_curso and not any(self.tramos.values()):
             self.archivo_en_curso.unlink(missing_ok=True)
             return
         ahora = ahora or datetime.now()
@@ -94,12 +105,15 @@ class RegistroTiempos:
         datos = {
             "latido": ahora.isoformat(timespec="seconds"),
             "timers": {a: i.isoformat(timespec="seconds") for a, i in self.en_curso.items()},
+            "tramos": {a: [[i.isoformat(timespec="seconds"), f.isoformat(timespec="seconds")] for i, f in t]
+                       for a, t in self.tramos.items() if t},
         }
         self.archivo_en_curso.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
 
     # ---------------------------------------------------------------- control
-    # Pausa: el tramo hasta la pausa se guarda como una sesión y, al reanudar, empieza
-    # otro tramo. Así los totales son exactos y el reloj de la tarjeta suma los tramos.
+    # Pausa: el tramo hasta la pausa se cierra y, al reanudar, empieza otro. Así los totales
+    # son exactos y el reloj de la tarjeta suma los tramos. Los tramos pasan al CSV al
+    # parar (cancelar los descarta todos); mientras tanto el latido los protege.
 
     def corriendo(self, actividad):
         return actividad in self.en_curso
@@ -111,6 +125,8 @@ class RegistroTiempos:
         if actividad not in self.en_curso:
             if not continuar:
                 self.previo.pop(actividad, None)
+                for inicio, fin in self.tramos.pop(actividad, []):  # restos de otra sesión
+                    self._escribir(actividad, inicio, fin)
             self.pausados.discard(actividad)
             self.en_curso[actividad] = momento or datetime.now()
             self.latido(momento)
@@ -119,14 +135,20 @@ class RegistroTiempos:
         """Detiene y guarda. Devuelve la duración del último tramo (timedelta) o None."""
         self.pausados.discard(actividad)
         self.previo.pop(actividad, None)
-        return self._cerrar_tramo(actividad, momento)
+        duracion = self._cerrar_tramo(actividad, momento)
+        for inicio, fin in self.tramos.pop(actividad, []):
+            self._escribir(actividad, inicio, fin)
+        self.latido()
+        return duracion
 
     def _cerrar_tramo(self, actividad, momento):
         inicio = self.en_curso.pop(actividad, None)
         if inicio is None:
             return None
         fin = max(momento or datetime.now(), inicio)
-        self._anotar(actividad, inicio, fin)
+        if fin > inicio:
+            self.tramos.setdefault(actividad, []).append((inicio, fin))
+            self.sesiones.append((actividad, inicio, fin))  # ya cuenta en los totales
         self.latido(fin)
         return fin - inicio
 
@@ -144,13 +166,19 @@ class RegistroTiempos:
             self.iniciar(actividad, momento, continuar=True)
 
     def cancelar(self, actividad):
-        """Descarta el tramo en marcha como si nunca hubiera pasado. Devuelve lo descartado."""
+        """Descarta la sesión entera (todos sus tramos) como si nunca hubiera pasado.
+        Devuelve lo descartado."""
         inicio = self.en_curso.pop(actividad, None)
         self.previo.pop(actividad, None)
-        if inicio is None:
+        self.pausados.discard(actividad)
+        tramos = self.tramos.pop(actividad, [])
+        for i, f in tramos:
+            self.sesiones.remove((actividad, i, f))
+        if inicio is None and not tramos:
             return None
         self.latido()
-        return datetime.now() - inicio
+        descartado = sum((f - i for i, f in tramos), timedelta())
+        return descartado + (datetime.now() - inicio if inicio else timedelta())
 
     def alternar(self, actividad, momento=None):
         """Inicia (o reanuda) o detiene. Devuelve (corriendo_ahora, duracion_si_paro)."""
