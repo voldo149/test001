@@ -28,17 +28,48 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-CARPETA_SCRIPT = Path(__file__).resolve().parent
-# Identidad de la app en la barra de tareas. La ventana y el acceso directo deben
-# usar la misma para que Windows los junte en un solo icono.
+# ¿Corre como .exe (PyInstaller)? Entonces los archivos del programa están en
+# sys._MEIPASS (solo lectura) y los datos del usuario van a %APPDATA%\Capturador.
+CONGELADO = getattr(sys, "frozen", False)
+CARPETA_SCRIPT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))  # icono y demás recursos
+if CONGELADO:
+    CARPETA_DATOS = Path(os.environ.get("APPDATA", Path.home())) / "Capturador"
+else:
+    CARPETA_DATOS = CARPETA_SCRIPT  # desde el código: config y tiempos junto a los .py, como siempre
+CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
+# Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
 APP_ID = "CapturadorSilksong"
-ARCHIVO_CONFIG = CARPETA_SCRIPT / "config.json"
+ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"
+ARCHIVOS_DE_DATOS = ("config.json", "tiempos.csv", "en_curso.json")
+
+
+def migrar_datos():
+    """Copia config y tiempos de una instalación anterior si aquí todavía no hay.
+
+    - Desde el código: la carpeta se llamaba capturador_silksong.
+    - Desde el .exe: también busca la instalación desde el código.
+    Copia (no mueve) para no perder nada. Devuelve la carpeta de donde copió, o None.
+    """
+    if ARCHIVO_CONFIG.exists():
+        return None
+    candidatos = [CARPETA_SCRIPT.parent / "capturador_silksong"]
+    if CONGELADO:
+        base = Path.home() / "test001"
+        candidatos = [base / "capturador", base / "capturador_silksong"]
+    import shutil
+    for viejo in candidatos:
+        if (viejo / "config.json").exists():
+            for nombre in ARCHIVOS_DE_DATOS:
+                if (viejo / nombre).exists() and not (CARPETA_DATOS / nombre).exists():
+                    shutil.copy2(viejo / nombre, CARPETA_DATOS / nombre)
+            return viejo
+    return None
 
 CONFIG_POR_DEFECTO = {
     "carpeta": str(Path.home() / "Pictures" / "Silksong"),
     "sufijo": "captura",       # fotos: captura-001.png; animaciones: anim01/captura-anim01-001.png
-    "formato": "png",          # "png", "jpg" o "webp"
-    "resolucion": "nativa",    # "nativa" o "720p" (se reduce después de capturar)
+    "formato": "webp",         # "png", "jpg" o "webp" (webp: ~10 % de un png con la misma calidad visible)
+    "resolucion": "720p",      # "nativa" o "720p" (se reduce después de capturar)
     "prioridad": "juego",      # "juego" (no frenar el juego) o "grabacion" (guardar rápido)
     "calidad_jpg": 95,
     "calidad_webp": 90,        # 90 se ve igual que el original y pesa ~10 % de un PNG
@@ -769,7 +800,7 @@ def menu(config):
         "0": ("Salir", None),
     }
     while True:
-        print("\n=== Capturador Silksong ===")
+        print("\n=== Capturador ===")
         for k, (texto, _) in opciones.items():
             if k == "6":
                 texto = f"Sonido al tomar foto: {'SI' if config['sonido'] else 'NO'} (cambiar)"

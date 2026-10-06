@@ -1,5 +1,5 @@
 """
-Ventana de Capturador Silksong: fotos y temporizadores con el mando.
+Ventana de Capturador: fotos, animaciones y temporizadores con el mando o el teclado.
 
 Estilo oscuro inspirado en el editor de guías de Speedrunz. La ventana nunca
 se pone al frente sola ni toma el foco, así que se puede dejar abierta
@@ -33,10 +33,10 @@ import trabajador
 from aviso_pantalla import AvisoPantalla
 from tiempos import RegistroTiempos, formato_duracion
 
-CARPETA = cap.CARPETA_SCRIPT
-ICONO = CARPETA / "icono.ico"
+CARPETA = cap.CARPETA_DATOS          # config, tiempos, errores
+ICONO = cap.CARPETA_SCRIPT / "icono.ico"
 LOG_ERRORES = CARPETA / "errores.log"
-TITULO = "Capturador Silksong"
+TITULO = "Capturador"
 LATIDO_CADA_MS = 30_000
 # Si el reloj salta más que esto entre dos refrescos, la PC estuvo suspendida:
 # los temporizadores se detienen en el último momento en que la app estaba viva.
@@ -797,6 +797,7 @@ class Escucha(threading.Thread):
 class App:
     def __init__(self, root):
         self.root = root
+        self._migrado_de = cap.migrar_datos()  # carpeta vieja (capturador_silksong) -> esta
         self.config = cap.cargar_config()
         self.config.setdefault("pitido_timers", False)
         self.config.setdefault("fotos_solo_con_timer", True)
@@ -856,6 +857,8 @@ class App:
                 "La app se cerró sin detener estos temporizadores. Se guardaron hasta el último "
                 "momento registrado:\n\n" + "\n".join(lineas)))
 
+        if self._migrado_de:
+            self.log(f"Se copiaron tu configuración y tus tiempos desde {self._migrado_de}")
         if not self.aviso.disponible:
             self.log(f"Indicador en pantalla desactivado: {self.aviso.motivo}")
         if self.bandeja is not None and not self.bandeja.disponible:
@@ -899,7 +902,7 @@ class App:
         titulos.pack(side="left", padx=(10, 0))
         ctk.CTkLabel(titulos, text="Capturador", font=fuente(15, "bold"), text_color=TEXTO,
                      height=18).pack(anchor="w")
-        ctk.CTkLabel(titulos, text="Silksong tools", font=fuente(11), text_color=TENUE,
+        ctk.CTkLabel(titulos, text="Fotos y tiempos", font=fuente(11), text_color=TENUE,
                      height=14).pack(anchor="w")
 
         ctk.CTkFrame(enc, width=1, height=30, fg_color=BORDE).grid(row=0, column=1, padx=16)
@@ -1143,7 +1146,7 @@ class App:
         separador(pie).place(relx=0, rely=0, relwidth=1)
         self.lbl_estado = ctk.CTkLabel(pie, text="Capturador  ·  Listo", font=fuente(11), text_color=TENUE)
         self.lbl_estado.pack(side="left", padx=16)
-        self.lbl_motor = ctk.CTkLabel(pie, text="Capturador · Silksong", font=fuente(11), text_color=TENUE)
+        self.lbl_motor = ctk.CTkLabel(pie, text="Capturador", font=fuente(11), text_color=TENUE)
         self.lbl_motor.pack(side="right", padx=16)
 
     # ------------------------------------------------------------------ util
@@ -1495,7 +1498,7 @@ class App:
                     else:
                         self.pastilla_mando.configure(text="●  Sin mando", text_color=TENUE, fg_color=TARJETA)
                 elif tipo == "motor":
-                    self.lbl_motor.configure(text=f"Captura: {evento[1]}  ·  Capturador · Silksong")
+                    self.lbl_motor.configure(text=f"Captura: {evento[1]}  ·  Capturador")
                 elif tipo == "error":
                     self.escucha_error = evento[1]
                     self.pastilla_mando.configure(text="●  Mando no disponible", text_color=ROJO,

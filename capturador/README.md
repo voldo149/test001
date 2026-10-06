@@ -1,10 +1,19 @@
-# Capturador Silksong
+# Capturador
 
 App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 - **Fotos:** captura de pantalla completa con un botón o combinación.
 - **Animaciones:** secuencias de imágenes a 60 fps. Un atajo empieza a grabar y el mismo atajo termina.
 - **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
+
+## Instalador (.exe)
+
+La forma más fácil, sin instalar Python ni Git: **`Capturador-Setup.exe`**.
+- Lo genera GitHub automáticamente en una máquina Windows cada vez que se suben cambios. Antes de crear el instalador prueba que el .exe funcione (librerías, procesos que comprimen, WebP y AVIF).
+- Para descargarlo: en GitHub, pestaña **Actions** → "Capturador para Windows" → la ejecución más reciente con ✓ → **Artifacts** → `Capturador-Setup` (viene en un .zip).
+- Se instala solo para tu usuario (no pide administrador), con acceso directo en Inicio y, si quieres, en el escritorio y al iniciar Windows.
+- En la versión instalada, la configuración y los tiempos se guardan en `%APPDATA%\Capturador`. La primera vez copia los de una instalación desde el código (`test001\capturador`), si existe.
+- Para actualizar: descarga el instalador nuevo y ejecútalo encima. Si la app está abierta, te pide cerrarla.
 
 ## Instalación desde cero (en una PC nueva)
 
@@ -18,15 +27,17 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
    ```cmd
    cd %USERPROFILE%
    git clone -b claude/adoring-darwin-pktdfp https://github.com/voldo149/test001.git
-   cd test001\capturador_silksong
+   cd test001\capturador
    ```
    Si el repositorio es privado, GitHub pide iniciar sesión con una cuenta que tenga acceso.
-3. Escribe `instalar.bat` y Enter. Instala todo y crea el acceso directo **Capturador Silksong** en el Escritorio y en Inicio.
-4. Para abrirla con un clic: busca "Capturador Silksong" en **Inicio**, clic derecho, **Anclar a la barra de tareas**.
+3. Escribe `instalar.bat` y Enter. Instala todo y crea el acceso directo **Capturador** en el Escritorio y en Inicio.
+4. Para abrirla con un clic: busca "Capturador" en **Inicio**, clic derecho, **Anclar a la barra de tareas**.
+
+**Si venías de la versión con la carpeta `capturador_silksong`:** después de `git pull` la app está en `test001\capturador`. Corre `instalar.bat` desde ahí: crea los accesos nuevos, borra los viejos y arregla el icono anclado. La primera vez que la abras copia tu configuración y tus tiempos de la carpeta vieja; después puedes borrar `capturador_silksong`.
 
 **Para actualizar después:** cierra la app y en CMD:
 ```cmd
-cd %USERPROFILE%\test001\capturador_silksong
+cd %USERPROFILE%\test001\capturador
 git pull
 instalar.bat
 ```
@@ -35,8 +46,8 @@ instalar.bat
 
 ## Instalación (una sola vez)
 
-1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador Silksong** con icono en el Escritorio y en el menú Inicio.
-2. Para abrirla con **un clic**: busca "Capturador Silksong" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**. Ánclala desde Inicio, no desde la ventana abierta: así el icono anclado y la ventana son el mismo en la barra de tareas.
+1. Doble clic en **`instalar.bat`**. Instala las dependencias y crea el acceso directo **Capturador** con icono en el Escritorio y en el menú Inicio.
+2. Para abrirla con **un clic**: busca "Capturador" en Inicio, haz clic derecho y elige **Anclar a la barra de tareas**. Ánclala desde Inicio, no desde la ventana abierta: así el icono anclado y la ventana son el mismo en la barra de tareas.
 
 ## La ventana
 

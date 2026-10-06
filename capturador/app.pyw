@@ -12,7 +12,7 @@ if __name__ == "__main__":
         # Con pythonw no hay consola: avisar en una ventana.
         from tkinter import Tk, messagebox
         Tk().withdraw()
-        messagebox.showerror("Capturador Silksong",
+        messagebox.showerror("Capturador",
                              f"Falta una dependencia ({e.name}).\n\nEjecuta instalar.bat otra vez.")
         sys.exit(1)
     main()

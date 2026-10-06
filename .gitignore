@@ -1,5 +1,5 @@
 __pycache__/
-capturador_silksong/config.json
-capturador_silksong/tiempos.csv
-capturador_silksong/en_curso.json
-capturador_silksong/errores.log
+capturador/config.json
+capturador/tiempos.csv
+capturador/en_curso.json
+capturador/errores.log

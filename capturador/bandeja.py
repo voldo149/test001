@@ -12,8 +12,9 @@ from pathlib import Path
 
 from PIL import Image
 
-CARPETA = Path(__file__).resolve().parent
-NOMBRE_INICIO = "Capturador Silksong.lnk"
+from capturador import CARPETA_SCRIPT as CARPETA  # dónde está icono.ico (también dentro del .exe)
+NOMBRE_INICIO = "Capturador.lnk"
+NOMBRE_INICIO_VIEJO = "Capturador Silksong.lnk"  # versiones anteriores
 ARG_BANDEJA = "--bandeja"
 
 
@@ -65,11 +66,11 @@ def _ruta_inicio():
 
 
 def inicio_con_windows():
-    """True si existe el acceso directo en la carpeta Inicio de Windows."""
+    """True si existe el acceso directo en la carpeta Inicio de Windows (el nuevo o el de antes)."""
     if os.name != "nt":
         return False
     try:
-        return _ruta_inicio().exists()
+        return _ruta_inicio().exists() or _ruta_inicio().with_name(NOMBRE_INICIO_VIEJO).exists()
     except Exception:
         return False
 
@@ -79,9 +80,11 @@ def activar_inicio_con_windows(activar):
     if os.name != "nt":
         raise RuntimeError("solo funciona en Windows")
     ruta = _ruta_inicio()
+    viejo = ruta.with_name(NOMBRE_INICIO_VIEJO)
+    if viejo.exists():
+        viejo.unlink()
     if activar:
-        import crear_acceso_directo
-        pythonw = Path(sys.executable).with_name("pythonw.exe")
-        crear_acceso_directo.crear(ruta, pythonw if pythonw.exists() else Path(sys.executable), ARG_BANDEJA)
+        import crear_acceso_directo  # abre el .exe instalado o, desde el código, pythonw + app.pyw
+        crear_acceso_directo.crear(ruta, ARG_BANDEJA)
     elif ruta.exists():
         ruta.unlink()
