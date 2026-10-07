@@ -25,6 +25,7 @@ import re
 import sys
 import threading
 import time
+import weakref
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +40,7 @@ else:
 CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
 # Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
 # Súbela en cada cambio: se ve junto al nombre de la app y en el instalador.
-VERSION = "2.1"
+VERSION = "2.2"
 
 APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"
@@ -336,25 +337,33 @@ class DetectorAtajos:
 # Captura de pantalla
 # --------------------------------------------------------------------------
 
+_ultimos = weakref.WeakKeyDictionary()  # cámara dxcam -> (último cuadro que entregó, cuándo)
+
+
 class Capturador:
-    """Toma el fotograma (rápido) en el hilo del mando; devuelve una PIL.Image."""
+    """Toma el fotograma (rápido) en el hilo del mando; devuelve una PIL.Image.
+
+    dxcam (DXGI) es el único que ve juegos en pantalla completa. mss (GDI) solo se usa
+    si dxcam no existe en esta PC: en pantalla completa devuelve una imagen congelada,
+    así que si dxcam falla un momento (Alt+Tab, cambio de resolución…) se vuelve a abrir
+    en vez de pasarse a mss para siempre.
+    """
+
+    REABRIR_CADA = 2.0  # s entre intentos de volver a abrir dxcam
+    SIN_CUADROS = 1.0   # s sin cuadros nuevos: dxcam pudo quedarse pegado, se vuelve a abrir
 
     def __init__(self, motor="auto", monitor=1):
         self.monitor = monitor
         self._dxcam = None
         self._mss = None
         self.nombre_motor = None
+        self._usa_dxcam = False
+        self._proximo_intento = 0.0
 
         if motor in ("auto", "dxcam"):
             try:
-                import dxcam
-                self._dxcam = dxcam.create(
-                    output_idx=max(monitor - 1, 0),
-                    # BGRA es el formato nativo: así dxcam no necesita OpenCV (cv2).
-                    output_color="BGRA",
-                )
-                if self._dxcam is None:
-                    raise RuntimeError("dxcam no pudo abrir el monitor")
+                self._dxcam = self._crear_dxcam()
+                self._usa_dxcam = True
                 self.nombre_motor = "dxcam (DXGI)"
             except Exception as e:
                 if motor == "dxcam":
@@ -362,36 +371,101 @@ class Capturador:
                 print(f"  dxcam no disponible ({e}); se usará mss.")
                 self._dxcam = None
 
-        if self._dxcam is None:
+        if not self._usa_dxcam:
             import mss
             self._mss = mss.mss()
             self.nombre_motor = "mss (GDI)"
 
+    def _crear_dxcam(self):
+        import dxcam
+        camara = dxcam.create(
+            output_idx=max(self.monitor - 1, 0),
+            # BGRA es el formato nativo: así dxcam no necesita OpenCV (cv2).
+            output_color="BGRA",
+        )
+        if camara is None:
+            raise RuntimeError("dxcam no pudo abrir el monitor")
+        return camara
+
+    def _reabrir(self):
+        """Suelta la cámara de dxcam (si hay) y abre una nueva. True si quedó lista."""
+        if time.monotonic() < self._proximo_intento and self._dxcam is not None:
+            return False  # se intentó hace poco: seguir con la que hay
+        viejo, self._dxcam = self._dxcam, None
+        if viejo is not None:
+            try:
+                viejo.release()  # así dxcam.create no devuelve la misma cámara rota
+            except Exception:
+                pass
+            del viejo
+        if time.monotonic() < self._proximo_intento:
+            return False
+        self._proximo_intento = time.monotonic() + self.REABRIR_CADA
+        try:
+            self._dxcam = self._crear_dxcam()
+            return True
+        except Exception:
+            return False
+
+    def _grab(self):
+        """Cuadro nuevo de dxcam o None si la pantalla no cambió. Reabre dxcam si falla."""
+        if self._dxcam is None and not self._reabrir():
+            return None
+        try:
+            frame = self._dxcam.grab()
+        except Exception:
+            if not self._reabrir():
+                return None
+            try:
+                frame = self._dxcam.grab()
+            except Exception:
+                return None
+        if frame is not None:
+            _ultimos[self._dxcam] = (frame, time.monotonic())  # lo comparten fotos y animaciones
+        return frame
+
+    def _sin_cuadros_hace(self):
+        """Segundos desde el último cuadro nuevo de dxcam (infinito si nunca hubo)."""
+        ultimo = _ultimos.get(self._dxcam) if self._dxcam is not None else None
+        return time.monotonic() - ultimo[1] if ultimo else float("inf")
+
     def tomar(self):
         """Devuelve un objeto ligero; la conversión pesada se hace en otro hilo."""
-        if self._dxcam is not None:
-            try:
-                # grab() devuelve None si no hubo fotograma nuevo; reintenta un poco.
-                for _ in range(10):
-                    frame = self._dxcam.grab()
+        if self._usa_dxcam:
+            # grab() devuelve None si no hubo fotograma nuevo; reintenta un poco.
+            for _ in range(10):
+                frame = self._grab()
+                if frame is not None:
+                    return ("bgra", frame)
+                time.sleep(0.005)
+            ultimo = _ultimos.get(self._dxcam) if self._dxcam is not None else None
+            if ultimo is not None and self._sin_cuadros_hace() < self.SIN_CUADROS:
+                # La pantalla no cambió desde el último cuadro: ese ES lo que se ve ahora.
+                return ("bgra", ultimo[0])
+            # Mucho rato sin cuadros: dxcam pudo quedarse pegado. Abrir uno nuevo (su
+            # primer cuadro es la pantalla actual) y esperar un poco.
+            self._reabrir()
+            if self._dxcam is not None:
+                for _ in range(40):
+                    frame = self._grab()
                     if frame is not None:
                         return ("bgra", frame)
                     time.sleep(0.005)
-            except Exception as e:
-                print(f"  dxcam falló ({e}); se usará mss desde ahora.")
-                self._dxcam = None
-                self.nombre_motor = "mss (GDI)"
-            # Pantalla estática o dxcam falló: usamos mss.
-            if self._mss is None:
-                import mss
-                self._mss = mss.mss()
+            if ultimo is not None:
+                return ("bgra", ultimo[0])  # de verdad no cambió nada
+            raise RuntimeError("la captura de pantalla (dxcam) no respondió; se reintentará")
         shot = self._mss.grab(self._mss.monitors[self.monitor])
         return ("mss", shot)
 
     def fotograma(self):
         """Para animaciones: un fotograma sin reintentos, o None si la pantalla no cambió."""
-        if self._dxcam is not None:
-            frame = self._dxcam.grab()
+        if self._usa_dxcam:
+            frame = self._grab()
+            if frame is None and self._sin_cuadros_hace() > self.SIN_CUADROS:
+                # Pantalla quieta o dxcam pegado: abrir otro (cada 2 s como mucho).
+                # Si de verdad está quieta no pasa nada; si estaba pegado, vuelve a dar cuadros.
+                self._reabrir()
+                frame = self._grab()
             return None if frame is None else ("bgra", frame)
         return ("mss", self._mss.grab(self._mss.monitors[self.monitor]))
 

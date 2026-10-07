@@ -525,7 +525,7 @@ class GrabadorAnimacion:
             t0 = t_ref = t_ant = time.perf_counter()
             ritmo = dt              # cada cuánto llegan cuadros del juego (promedio)
             proximo_aviso = t0
-            por_eventos = getattr(capt, "_dxcam", None) is not None
+            por_eventos = capt._usa_dxcam
 
             while not self._parar.is_set():
                 if por_eventos:

@@ -1,5 +1,5 @@
 ; Instalador de Capturador (Inno Setup 6). Lo compila la acción de GitHub después de PyInstaller:
-;   iscc /DVersion=2.1 capturador\instalador.iss   ->   Output\Capturador-Setup-2.1.exe
+;   iscc /DVersion=2.2 capturador\instalador.iss   ->   Output\Capturador-Setup-2.2.exe
 #ifndef Version
   #define Version "1.0"
 #endif

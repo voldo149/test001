@@ -12,7 +12,7 @@ Doble clic en **`actualizar.bat`** (en `test001\capturador`). Cierra el Capturad
 
 ## Número de versión
 
-Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.1**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.1.exe`. Así sabes si ya tienes la última.
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.2**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.2.exe`. Así sabes si ya tienes la última.
 
 ## Instalador (.exe)
 
@@ -132,6 +132,7 @@ Clic en la miniatura de una animación (la que tiene la etiqueta ▶):
 - **Para no frenar la captura**, la compresión ocurre en procesos aparte. Python no deja que dos hilos del mismo proceso trabajen a la vez mientras se comprime WebP o JPG (medido: hasta 60 ms con WebP), y eso hacía que se perdieran cuadros. Ahora el hilo de captura solo toma el cuadro y lo pasa a memoria compartida.
 - **Sin límite de duración:** puedes grabar toda una pelea o muchos intentos seguidos y después sacar cada parte con el editor de recorte. Los cuadros esperan en memoria mientras se comprimen. Los cuadros se guardan con los ajustes más rápidos (WebP method 0 y reducción a 720p por promedio) para no quitarle CPU al juego. Si la memoria pendiente llega al límite (35 % de la RAM, máximo 6 GB), se repite el cuadro anterior un momento (como si el juego se trabara) hasta que la PC se ponga al día. La grabación **nunca se detiene sola**. En Actividad se ve cuántos cuadros se repitieron por eso. Para evitarlo, graba en 720p.
 - Mientras grabas, las fotos con botón y el autoshot no se toman.
+- Si la captura de pantalla falla o deja de dar cuadros (Alt+Tab, cambio de resolución, un aviso de Windows…), se vuelve a abrir sola en un segundo o dos; la grabación y las fotos siguen. Antes se quedaba con la última imagen para siempre.
 - En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.
 - Si cierras la app mientras guarda, espera a terminar antes de cerrarse.
