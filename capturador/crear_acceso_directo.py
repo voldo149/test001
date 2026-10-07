@@ -5,8 +5,9 @@ ventana, para que en la barra de tareas el icono anclado y la ventana abierta
 sean uno solo.
 
 También pone al día los accesos de versiones anteriores (la carpeta se
-llamaba capturador_silksong y la app "Capturador Silksong"): borra los viejos
-y corrige en su lugar el que esté anclado a la barra de tareas.
+llamaba capturador_silksong y la app "Capturador Silksong") y los que apuntan
+a otra carpeta (si moviste la app): borra los viejos y corrige en su lugar el
+que esté anclado a la barra de tareas y el de inicio con Windows.
 """
 
 import os
@@ -82,8 +83,14 @@ def carpetas():
     }
 
 
+def _de_otra_carpeta(args):
+    """¿El acceso abre un app.pyw que no es el de esta carpeta (versión vieja o carpeta movida)?"""
+    args = args.lower()
+    return "app.pyw" in args and str(CARPETA / "app.pyw").lower() not in args
+
+
 def actualizar_viejos():
-    """Borra los accesos de la versión anterior y arregla el anclado a la barra de tareas."""
+    """Borra los accesos de la versión anterior y arregla los que apuntan a otra carpeta."""
     import pythoncom
     c = carpetas()
     hechos = []
@@ -97,13 +104,23 @@ def actualizar_viejos():
         viejo.unlink()
         crear(c["inicio_windows"] / NOMBRE, ARG_BANDEJA)
         hechos.append("inicio con Windows actualizado")
+    if CONGELADO:
+        return hechos  # el .exe instalado no toca los accesos de la versión de git
+    inicio = c["inicio_windows"] / NOMBRE
+    if inicio.exists():
+        try:
+            if _de_otra_carpeta(_argumentos_de(inicio)[1]):
+                crear(inicio, ARG_BANDEJA)
+                hechos.append("inicio con Windows apunta a esta carpeta")
+        except Exception:
+            pass
     if c["barra"].exists():
         for lnk in c["barra"].glob("*.lnk"):
             try:
                 link, args = _argumentos_de(lnk)
             except Exception:
                 continue
-            if CARPETA_VIEJA in args.lower() and "app.pyw" in args.lower():
+            if _de_otra_carpeta(args):
                 _vincular(link, "")
                 link.QueryInterface(pythoncom.IID_IPersistFile).Save(str(lnk), 0)
                 hechos.append(f"icono anclado actualizado ({lnk.name})")
