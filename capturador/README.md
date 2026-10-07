@@ -6,6 +6,10 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 - **Animaciones:** secuencias de imágenes a 60 fps. Un atajo empieza a grabar y el mismo atajo termina.
 - **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
 
+## Actualizar la versión de git con un clic
+
+Doble clic en **`actualizar.bat`** (en `test001\capturador`). Cierra el Capturador (también el instalado), baja la última versión de GitHub aunque `git pull` diga «up to date», muestra qué versión quedó y abre la app. Tu configuración, tus tiempos y tus fotos no se tocan; solo se reemplazan los archivos del programa.
+
 ## Número de versión
 
 Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.0**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.0.exe`. Así sabes si ya tienes la última.
