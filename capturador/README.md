@@ -8,7 +8,7 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 ## Número de versión
 
-Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v1.8**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-1.8.exe`. Así sabes si ya tienes la última.
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v1.9**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-1.9.exe`. Así sabes si ya tienes la última.
 
 ## Instalador (.exe)
 

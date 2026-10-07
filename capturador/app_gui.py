@@ -1708,12 +1708,6 @@ class App:
                 Dialogo.mostrar(self.root, "Combinación ocupada",
                                 f"{cap.texto_combo(nombres)} ya está asignado a «{dueno['nombre']}».")
                 return
-        if len(nombres) == 1 and not self._unico_seguro(nombres[0]) and not Dialogo.confirmar(
-                self.root, f"Detectado: {cap.texto_combo(nombres)}",
-                "Un solo botón también lo usa el juego. Una combinación como BACK + RB evita disparos "
-                "accidentales.\n\n¿Usarlo de todos modos?",
-                si="Usarlo"):
-            return
         al_terminar(nombres)
 
     def _quitar_teclas(self):
@@ -1735,11 +1729,6 @@ class App:
                     self.config.pop(clave, None)
                 cambios.append(texto)
         return cambios
-
-    @staticmethod
-    def _unico_seguro(nombre):
-        """Teclas sueltas que casi ningún juego usa: F1-F24, ImprPant, Pausa, BloqDespl, Insert."""
-        return cap.es_tecla(nombre) and (0x70 <= cap._vk(nombre) <= 0x87 or cap._vk(nombre) in (0x13, 0x2C, 0x2D, 0x91))
 
     def _pedir_nombre(self, titulo, mensaje, sugerido):
         nombre = Dialogo.mostrar(self.root, titulo, mensaje,
