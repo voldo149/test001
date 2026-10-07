@@ -644,7 +644,7 @@ class Escucha(threading.Thread):
             cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
 
     def _autoshot(self, guardador, capturador):
-        """Foto automática: misma carpeta y misma numeración que las manuales, sin sonido ni destello."""
+        """Foto automática: misma carpeta y misma numeración que las manuales, sin sonido."""
         try:
             carpeta = cap.carpeta_actual(self.config)
             sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
@@ -652,6 +652,7 @@ class Escucha(threading.Thread):
             guardador.cola.put((cap.AUTOSHOT, datetime.now(), capturador.tomar(), reserva))
             self.autoshots += 1
             self._avisar("autoshot", self.autoshots)
+            self._avisar("destello")  # el circulito verde: se ve que el autoshot está tomando fotos
         except Exception as e:
             self._avisar("log", f"[!] Autoshot: {e}")
 

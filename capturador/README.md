@@ -8,7 +8,7 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 
 ## Número de versión
 
-Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v1.7**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-1.7.exe`. Así sabes si ya tienes la última.
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v1.8**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-1.8.exe`. Así sabes si ya tienes la última.
 
 ## Instalador (.exe)
 
@@ -75,7 +75,7 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 - **Atajo de temporizador:** es uno solo para todos y se asigna en la columna derecha. Inicia o para el temporizador **seleccionado**.
 - **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
 - **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Si lo intentas sin temporizador, suena el aviso de Windows ("Aviso si no hay temporizador", en Sonidos). Se apaga con el interruptor en "Atajos de foto".
-- **Autoshot** (en Atajos de foto): toma una foto sola cada N segundos (− / + para elegir, de 1 a 60) mientras corre el temporizador. Puedes seguir tomando tus fotos normales. Las automáticas van a la **misma carpeta** y siguen la **misma numeración** que las manuales (`doric-014.webp` automática, `doric-015.webp` tuya, `doric-016.webp` automática…), sin repetir números. No hacen sonido ni destello, pero sí aparecen en las miniaturas. No cuentan para la pausa automática, se detienen mientras el temporizador está en pausa y mientras grabas una animación.
+- **Autoshot** (en Atajos de foto): toma una foto sola cada N segundos (− / + para elegir, de 1 a 60) mientras corre el temporizador. Puedes seguir tomando tus fotos normales. Las automáticas van a la **misma carpeta** y siguen la **misma numeración** que las manuales (`doric-014.webp` automática, `doric-015.webp` tuya, `doric-016.webp` automática…), sin repetir números. No hacen sonido, pero sí el **destello verde** del circulito (abajo a la izquierda) y aparecen en las miniaturas. No cuentan para la pausa automática, se detienen mientras el temporizador está en pausa y mientras grabas una animación.
 - **Pausa automática sin fotos** (columna derecha, en Más opciones: No / 30 s / 1 / 3 / 5 min, por defecto 30 s): si pasa ese tiempo sin fotos ni animaciones, el temporizador se pone **en pausa** (gris) y **se cuenta solo hasta la última foto**. La siguiente foto lo reanuda. Solo se activa después de la primera foto de la sesión, así un temporizador en el que no tomas fotos (por ejemplo "escribir") nunca se pausa solo. Con el **autoshot** encendido no hay pausa automática (si no, se detendría el autoshot). En pausa, la tarjeta muestra **Reanudar** y **Terminar**.
 - **Pausa mientras usas la app:** mientras la ventana del Capturador (o uno de sus diálogos, como el de recortar) está al frente, el tiempo **no cuenta** y el **autoshot se detiene**. La tarjeta dice "PAUSA: USANDO LA APP" y sigue con **Parar** y **Cancelar**, como si estuviera en marcha. Al volver al juego sigue sola. (Mientras grabas una animación no se pausa.)
 - **Cancelar** descarta toda la sesión, también los tramos de antes de cada pausa. Los tramos pasan al historial (`tiempos.csv`) al parar el temporizador.
