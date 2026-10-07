@@ -12,9 +12,9 @@ Para que se vea fluida:
   GIL al comprimir WebP/JPG y, en el mismo proceso, eso congelaba la captura y
   hacía que se perdieran cuadros (la animación se veía cortada).
 - El hilo de captura tiene prioridad alta: hace muy poco trabajo por cuadro.
-- No hay límite de duración. Si la PC no alcanza a guardar al ritmo del juego,
-  primero se usan más procesos para comprimir; si aun así la RAM pendiente
-  llega al límite, se repite el cuadro anterior en vez de guardar uno nuevo
+- No hay límite de duración. Si la PC no alcanza a guardar al ritmo del juego
+  y la RAM pendiente llega al límite, se repite el cuadro anterior en vez de
+  guardar uno nuevo
   (como si el juego se trabara un instante) hasta que se libere. La grabación
   nunca se detiene sola.
 
@@ -290,10 +290,9 @@ class GrabadorAnimacion:
         return self.config.get("prioridad", "juego")
 
     def _procesos(self):
-        """Cuántos cuadros se comprimen a la vez. Si se van juntando, todos los posibles
-        (mejor usar más CPU un rato que llenar la memoria)."""
-        if self._bytes > self.limite * 0.2:
-            return HILOS["grabacion"]
+        """Cuántos cuadros se comprimen a la vez, según la prioridad elegida. Nunca se suben
+        solos: usar todos los núcleos le quitaba fluidez al juego. Si la memoria pendiente
+        llega al límite, se repiten cuadros en vez de eso (ver _capturar)."""
         return HILOS.get(self._modo(), HILOS["juego"])
 
     # ------------------------------------------------------------------ nombres

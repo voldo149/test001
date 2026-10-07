@@ -12,7 +12,7 @@ Doble clic en **`actualizar.bat`** (en `test001\capturador`). Cierra el Capturad
 
 ## Número de versión
 
-Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.0**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.0.exe`. Así sabes si ya tienes la última.
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.1**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.1.exe`. Así sabes si ya tienes la última.
 
 ## Instalador (.exe)
 
@@ -130,7 +130,7 @@ Clic en la miniatura de una animación (la que tiene la etiqueta ▶):
 - Asigna el **Atajo de animación** en la columna derecha. Presiónalo una vez para empezar (suena un tono que sube) y otra para terminar (suena un tono que baja). Mientras graba, arriba aparece **● REC** con el tiempo y los cuadros.
 - **Fluidez:** se toma cada cuadro que el juego muestra, en el momento en que aparece (se revisa cada ~1 ms). Si el juego tarda más en mostrar el siguiente (una escena a 30 fps o la pantalla quieta), el cuadro anterior se repite para que la animación dure lo mismo que en la realidad. En el `.avif` esos repetidos casi no pesan. Si tu monitor va a más de 60 Hz, se toma un cuadro por cada 1/60 de segundo. Para que salga perfecta, limita el juego a 60 fps.
 - **Para no frenar la captura**, la compresión ocurre en procesos aparte. Python no deja que dos hilos del mismo proceso trabajen a la vez mientras se comprime WebP o JPG (medido: hasta 60 ms con WebP), y eso hacía que se perdieran cuadros. Ahora el hilo de captura solo toma el cuadro y lo pasa a memoria compartida.
-- **Sin límite de duración:** puedes grabar toda una pelea o muchos intentos seguidos y después sacar cada parte con el editor de recorte. Los cuadros esperan en memoria mientras se comprimen. Si se van juntando, se usan más procesos para comprimir. Si aun así la memoria pendiente llega al límite (35 % de la RAM, máximo 6 GB), se repite el cuadro anterior un momento (como si el juego se trabara) hasta que la PC se ponga al día. La grabación **nunca se detiene sola**. En Actividad se ve cuántos cuadros se repitieron por eso. Para evitarlo, graba en 720p.
+- **Sin límite de duración:** puedes grabar toda una pelea o muchos intentos seguidos y después sacar cada parte con el editor de recorte. Los cuadros esperan en memoria mientras se comprimen. Los cuadros se guardan con los ajustes más rápidos (WebP method 0 y reducción a 720p por promedio) para no quitarle CPU al juego. Si la memoria pendiente llega al límite (35 % de la RAM, máximo 6 GB), se repite el cuadro anterior un momento (como si el juego se trabara) hasta que la PC se ponga al día. La grabación **nunca se detiene sola**. En Actividad se ve cuántos cuadros se repitieron por eso. Para evitarlo, graba en 720p.
 - Mientras grabas, las fotos con botón y el autoshot no se toman.
 - En PNG ocupan bastante: a 1080p son unos 150–250 MB por segundo. En WEBP, alrededor de una décima parte.
 - Igual que las fotos, solo funciona con un temporizador en marcha si ese interruptor está activado. Mientras se graba una animación, el atajo de foto no hace nada.

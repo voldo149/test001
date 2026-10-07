@@ -39,7 +39,7 @@ else:
 CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
 # Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
 # Súbela en cada cambio: se ve junto al nombre de la app y en el instalador.
-VERSION = "2.0"
+VERSION = "2.1"
 
 APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"
@@ -504,8 +504,8 @@ def guardar_imagen(img, ruta, config, rapido=False):
     if ext == "jpg":
         img.save(ruta, "JPEG", quality=int(config.get("calidad_jpg", 95)))
     elif ext == "webp":
-        # method 2 pesa casi lo mismo que 4 y tarda la mitad.
-        img.save(ruta, "WEBP", quality=int(config.get("calidad_webp", 90)), method=2 if rapido else 4)
+        # Cuadros de animación: method 0, el más rápido (pesa ~3 % más). Fotos: method 4.
+        img.save(ruta, "WEBP", quality=int(config.get("calidad_webp", 90)), method=0 if rapido else 4)
     else:
         # compress_level bajo = mucho más rápido, archivo algo más grande.
         img.save(ruta, "PNG", compress_level=1)
@@ -639,13 +639,16 @@ def bajar_prioridad():
     aplicar_prioridad("juego")
 
 
-def ajustar_resolucion(img, resolucion):
-    """Reduce a 720 px de alto si se pidió 720p (mantiene la proporción de la pantalla)."""
+def ajustar_resolucion(img, resolucion, rapido=False):
+    """Reduce a 720 px de alto si se pidió 720p (mantiene la proporción de la pantalla).
+
+    rapido=True (cuadros de animación): promedio de áreas (BOX), unas 3 veces más rápido
+    que LANCZOS y casi igual de nítido al reducir."""
     if resolucion != "720p" or img.height <= 720:
         return img
     from PIL import Image
     ancho = round(img.width * 720 / img.height)
-    return img.resize((ancho, 720), Image.LANCZOS)
+    return img.resize((ancho, 720), Image.BOX if rapido else Image.LANCZOS)
 
 
 # --------------------------------------------------------------------------

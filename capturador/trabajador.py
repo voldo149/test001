@@ -63,7 +63,7 @@ def calentar(*_):
 def guardar(nombre_shm, forma, ruta, opciones, modo, miniatura=None):
     """Guarda un cuadro o foto. Si se pide, devuelve una miniatura (tamaño, bytes RGB)."""
     _prioridad(modo)
-    img = cap.ajustar_resolucion(_leer(nombre_shm, forma), opciones.get("resolucion"))
+    img = cap.ajustar_resolucion(_leer(nombre_shm, forma), opciones.get("resolucion"), opciones.get("rapido", False))
     cap.guardar_imagen(img, Path(ruta), opciones, rapido=opciones.get("rapido", False))
     if miniatura:
         img.thumbnail(miniatura)
