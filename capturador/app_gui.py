@@ -1,5 +1,5 @@
 """
-Ventana de Capturador: fotos, animaciones y temporizadores con el mando o el teclado.
+Ventana de Capturador: fotos, animaciones y temporizadores con el mando.
 
 Estilo oscuro inspirado en el editor de guías de Speedrunz. La ventana nunca
 se pone al frente sola ni toma el foco, así que se puede dejar abierta
@@ -677,15 +677,18 @@ class Escucha(threading.Thread):
 
     def _construir_detector(self):
         atajos, acciones = [], {}
+        def solo_mando(botones):  # por ahora el teclado no se usa para los atajos
+            return [b for b in botones or [] if not cap.es_tecla(b)]
         for a in self.config["atajos"]:
-            clave = f"foto:{a['nombre']}"
-            atajos.append({"nombre": clave, "botones": a["botones"]})
-            acciones[clave] = ("foto", a["nombre"])
-        if self.config.get("atajo_timer"):
-            atajos.append({"nombre": "global", "botones": self.config["atajo_timer"]})
+            if solo_mando(a["botones"]):
+                clave = f"foto:{a['nombre']}"
+                atajos.append({"nombre": clave, "botones": solo_mando(a["botones"])})
+                acciones[clave] = ("foto", a["nombre"])
+        if solo_mando(self.config.get("atajo_timer")):
+            atajos.append({"nombre": "global", "botones": solo_mando(self.config["atajo_timer"])})
             acciones["global"] = ("global", None)
-        if self.config.get("atajo_anim"):
-            atajos.append({"nombre": "anim", "botones": self.config["atajo_anim"]})
+        if solo_mando(self.config.get("atajo_anim")):
+            atajos.append({"nombre": "anim", "botones": solo_mando(self.config["atajo_anim"])})
             acciones["anim"] = ("anim", None)
         self.acciones = acciones
         self.detector = cap.DetectorAtajos(atajos, self.config["espera_entre_fotos"])
@@ -729,85 +732,97 @@ class Escucha(threading.Thread):
         estado_grabar = None  # None -> "soltar" -> "acumular"
         acumulado = 0
         proximo_auto = None
+        ultimo_error = None
+        sin_captura_avisado = False
 
         while not self._detener.is_set():
-            ahora = time.monotonic()
-            m = xi.leer(ahora)
+            try:
+                ahora = time.monotonic()
+                m = xi.leer(ahora)
 
-            if ahora - ultimo_estado > 1.0:
-                ultimo_estado = ahora
-                if xi.alguno_conectado() != conectado:
-                    conectado = xi.alguno_conectado()
-                    self._avisar("mando", conectado)
+                if ahora - ultimo_estado > 1.0:
+                    ultimo_estado = ahora
+                    if xi.alguno_conectado() != conectado:
+                        conectado = xi.alguno_conectado()
+                        self._avisar("mando", conectado)
 
-            if self._grabar:
-                # Espera a que se suelte todo, junta lo que se presione y confirma al soltar.
-                teclas, esc = teclado.leer_para_asignar()
-                if esc:  # Esc: salir sin asignar (y nunca se puede usar como atajo)
-                    self._grabar = False
-                    self._recargar = True
-                    self._avisar("combo_cancelado")
-                    time.sleep(cap.INTERVALO_LECTURA)
-                    continue
-                m |= teclas
-                if estado_grabar is None:
-                    estado_grabar, acumulado = "soltar", 0
-                if estado_grabar == "soltar":
-                    if not m:
-                        estado_grabar = "acumular"
-                elif m:
-                    acumulado |= m
-                elif acumulado:
-                    self._grabar = False
-                    self._recargar = True
-                    self._avisar("combo", acumulado)
-            else:
-                estado_grabar = None
-                if self._vks:
-                    m |= teclado.leer(self._vks)
-                if self._recargar:
-                    self._recargar = False
-                    self._construir_detector()
-                    self.detector._anterior = m  # no disparar lo que ya está presionado
-                nombre = self.detector.actualizar(m, ahora)
-                if nombre:
-                    tipo, real = self.acciones[nombre]
-                    if tipo == "foto":
-                        if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
-                            self._avisar("log", "Foto ignorada: no hay ningún temporizador en marcha.")
-                            self._sin_timer()
-                        elif self.grabando_animacion:
-                            self._avisar("log", "Foto ignorada: se está grabando una animación.")
-                        elif capturador is None:
-                            self._avisar("log", "[!] La captura de pantalla no está disponible.")
-                        else:
-                            try:
-                                # El número se aparta al presionar, así fotos y animaciones siguen el orden.
-                                carpeta = cap.carpeta_actual(self.config)
-                                sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
-                                reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
-                                guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
-                                self._avisar("captura", datetime.now())
-                                self._avisar("destello")
-                            except Exception as e:
-                                self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
-                    elif tipo == "global":
-                        self._avisar("timer_global", datetime.now())
-                    elif tipo == "anim":
-                        self._alternar_animacion()
+                if self._grabar:
+                    # Espera a que se suelte todo, junta lo que se presione y confirma al soltar.
+                    _, esc = teclado.leer_para_asignar()
+                    if esc:  # Esc: salir sin asignar (y nunca se puede usar como atajo)
+                        self._grabar = False
+                        self._recargar = True
+                        self._avisar("combo_cancelado")
+                        time.sleep(cap.INTERVALO_LECTURA)
+                        continue
+                    if estado_grabar is None:
+                        estado_grabar, acumulado = "soltar", 0
+                    if estado_grabar == "soltar":
+                        if not m:
+                            estado_grabar = "acumular"
+                    elif m:
+                        acumulado |= m
+                    elif acumulado:
+                        self._grabar = False
+                        self._recargar = True
+                        self._avisar("combo", acumulado)
+                else:
+                    estado_grabar = None
+                    if self._recargar:
+                        self._recargar = False
+                        self._construir_detector()
+                        self.detector._anterior = m  # no disparar lo que ya está presionado
+                    nombre = self.detector.actualizar(m, ahora)
+                    if nombre:
+                        tipo, real = self.acciones[nombre]
+                        if tipo == "foto":
+                            if self.config.get("fotos_solo_con_timer", True) and not self.hay_timer:
+                                self._avisar("log", "Foto ignorada: no hay ningún temporizador en marcha.")
+                                self._sin_timer()
+                            elif self.grabando_animacion:
+                                self._avisar("log", "Foto ignorada: se está grabando una animación.")
+                            elif capturador is None:
+                                self._avisar("log", "[!] La captura de pantalla no está disponible.")
+                            else:
+                                try:
+                                    # El número se aparta al presionar, así fotos y animaciones siguen el orden.
+                                    carpeta = cap.carpeta_actual(self.config)
+                                    sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
+                                    reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
+                                    guardador.cola.put((real, datetime.now(), capturador.tomar(), reserva))
+                                    self._avisar("captura", datetime.now())
+                                    self._avisar("destello")
+                                except Exception as e:
+                                    self._avisar("log", f"[!] No se pudo tomar la foto: {e}")
+                        elif tipo == "global":
+                            self._avisar("timer_global", datetime.now())
+                        elif tipo == "anim":
+                            self._alternar_animacion()
 
-            # Autoshot: una foto cada N segundos mientras corre un temporizador (no en pausa).
-            permitido = self.timer_corriendo or not self.config.get("fotos_solo_con_timer", True)
-            if (self.config.get("autoshot") and permitido and capturador is not None
-                    and not self.grabando_animacion and not self._grabar and not self.en_ventana):
-                intervalo = max(1.0, float(self.config.get("autoshot_seg", 3)))
-                if proximo_auto is None:
-                    proximo_auto = ahora + intervalo  # la primera, un intervalo después de activarlo
-                elif ahora >= proximo_auto:
-                    proximo_auto = ahora + intervalo
-                    self._autoshot(guardador, capturador)
-            else:
-                proximo_auto = None
+                # Autoshot: una foto cada N segundos mientras corre un temporizador (no en pausa).
+                permitido = self.timer_corriendo or not self.config.get("fotos_solo_con_timer", True)
+                if self.config.get("autoshot") and permitido and capturador is None and not sin_captura_avisado:
+                    sin_captura_avisado = True
+                    self._avisar("log", "[!] Autoshot: la captura de pantalla no está disponible.")
+                if (self.config.get("autoshot") and permitido and capturador is not None
+                        and not self.grabando_animacion and not self._grabar and not self.en_ventana):
+                    intervalo = max(1.0, float(self.config.get("autoshot_seg", 3)))
+                    if proximo_auto is None:
+                        proximo_auto = ahora + intervalo  # la primera, un intervalo después de activarlo
+                    elif ahora >= proximo_auto:
+                        proximo_auto = ahora + intervalo
+                        self._autoshot(guardador, capturador)
+                else:
+                    proximo_auto = None
+
+            except Exception:
+                # Nunca dejar de escuchar el mando por un error: se anota y se sigue.
+                detalle = traceback.format_exc()
+                if detalle != ultimo_error:
+                    ultimo_error = detalle
+                    registrar_error(detalle)
+                    self._avisar("log", f"[!] Error al leer los atajos: {detalle.strip().splitlines()[-1]} "
+                                        f"(detalles en {LOG_ERRORES.name})")
 
             time.sleep(cap.INTERVALO_LECTURA)
 
@@ -846,6 +861,7 @@ class App:
             self.config["version_config"] = 2
         self.config.setdefault("anim_guardar", "cuadros")
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
+        self._sin_teclas = self._quitar_teclas()
         self._grabando_desde = None
         self._migrar_botones_propios()
         self._ultimo_tick = datetime.now()
@@ -885,8 +901,12 @@ class App:
                 "La app se cerró sin detener estos temporizadores. Se guardaron hasta el último "
                 "momento registrado:\n\n" + "\n".join(lineas)))
 
+        self.log(f"Capturador v{cap.VERSION}")
         if self._migrado_de:
             self.log(f"Se copiaron tu configuración y tus tiempos desde {self._migrado_de}")
+        if self._sin_teclas:
+            self._guardar()
+            self.log("Los atajos ahora son solo del mando; se quitaron las teclas de: " + ", ".join(self._sin_teclas))
         if not self.aviso.disponible:
             self.log(f"Indicador en pantalla desactivado: {self.aviso.motivo}")
         if self.bandeja is not None and not self.bandeja.disponible:
@@ -930,7 +950,7 @@ class App:
         titulos.pack(side="left", padx=(10, 0))
         ctk.CTkLabel(titulos, text="Capturador", font=fuente(15, "bold"), text_color=TEXTO,
                      height=18).pack(anchor="w")
-        ctk.CTkLabel(titulos, text="Fotos y tiempos", font=fuente(11), text_color=TENUE,
+        ctk.CTkLabel(titulos, text=f"Fotos y tiempos · v{cap.VERSION}", font=fuente(11), text_color=TENUE,
                      height=14).pack(anchor="w")
 
         ctk.CTkFrame(enc, width=1, height=30, fg_color=BORDE).grid(row=0, column=1, padx=16)
@@ -1454,7 +1474,8 @@ class App:
     def _revisar_pausa_automatica(self, ahora):
         """Si pasan N segundos sin fotos, pausar contando solo hasta la última foto."""
         segundos = self.config.get("pausa_auto_seg", 30)
-        if not segundos or self.escucha.grabando_animacion:
+        # Con el autoshot encendido no: él toma fotos solo y la pausa lo detendría.
+        if not segundos or self.escucha.grabando_animacion or self.config.get("autoshot"):
             return
         for nombre in list(self.registro.en_curso):
             ultima = self._ultima_foto.get(nombre)
@@ -1633,9 +1654,9 @@ class App:
               font=fuente(14, "bold")).pack(side="right")
         cuerpo = ctk.CTkFrame(d, fg_color="transparent")
         cuerpo.pack(padx=36, pady=(0, 26))
-        ctk.CTkLabel(cuerpo, text="🎮  ⌨", font=fuente(34)).pack()
+        ctk.CTkLabel(cuerpo, text="🎮", font=fuente(34)).pack()
         ctk.CTkLabel(cuerpo, text=titulo, font=fuente(16, "bold"), text_color=TEXTO).pack(pady=(6, 0))
-        ctk.CTkLabel(cuerpo, text="Presiona el atajo: un botón del mando o una tecla\n"
+        ctk.CTkLabel(cuerpo, text="Presiona el atajo en el mando: un botón\n"
                                   "(o mantén una combinación y suelta).",
                      font=fuente(13), text_color=TENUE, justify="center").pack(pady=(6, 4))
         ctk.CTkLabel(cuerpo, text="Esc para salir", font=fuente(12, "bold"), text_color=TENUE).pack()
@@ -1685,11 +1706,31 @@ class App:
                 return
         if len(nombres) == 1 and not self._unico_seguro(nombres[0]) and not Dialogo.confirmar(
                 self.root, f"Detectado: {cap.texto_combo(nombres)}",
-                "Un solo botón o tecla también lo usa el juego (o al escribir). Una combinación como "
-                "BACK + RB o una tecla F (F9, F10…) evita disparos accidentales.\n\n¿Usarlo de todos modos?",
+                "Un solo botón también lo usa el juego. Una combinación como BACK + RB evita disparos "
+                "accidentales.\n\n¿Usarlo de todos modos?",
                 si="Usarlo"):
             return
         al_terminar(nombres)
+
+    def _quitar_teclas(self):
+        """Por ahora los atajos son solo del mando: quitar las teclas guardadas antes."""
+        cambios = []
+        for a in list(self.config["atajos"]):
+            if any(cap.es_tecla(b) for b in a["botones"]):
+                a["botones"] = [b for b in a["botones"] if not cap.es_tecla(b)]
+                if not a["botones"]:
+                    self.config["atajos"].remove(a)
+                cambios.append(a["nombre"])
+        for clave, texto in (("atajo_timer", "atajo de temporizador"), ("atajo_anim", "atajo de animación")):
+            botones = self.config.get(clave) or []
+            if any(cap.es_tecla(b) for b in botones):
+                resto = [b for b in botones if not cap.es_tecla(b)]
+                if resto:
+                    self.config[clave] = resto
+                else:
+                    self.config.pop(clave, None)
+                cambios.append(texto)
+        return cambios
 
     @staticmethod
     def _unico_seguro(nombre):
@@ -1725,13 +1766,11 @@ class App:
         self._grabar_combo("Nuevo atajo de foto", listo)
 
     def borrar_foto(self, nombre):
-        if not Dialogo.confirmar(self.root, "Borrar atajo", f"¿Borrar el atajo «{nombre}»?",
-                                 si="Borrar", estilo="rojo"):
-            return
         self.config["atajos"] = [a for a in self.config["atajos"] if a["nombre"] != nombre]
         self._guardar()
         self.escucha.recargar()
         self._refrescar_fotos()
+        self.log(f"Atajo de foto '{nombre}' borrado")
 
     def cambiar_carpeta(self):
         """Panel derecho: cambia la carpeta general."""

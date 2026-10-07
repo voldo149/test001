@@ -32,7 +32,7 @@ def autoprueba(salida):
         import capturador as cap
         import sonidos
         import trabajador
-        ok("módulos de la app")
+        ok(f"módulos de la app (versión {cap.VERSION})")
 
         import customtkinter  # noqa: F401
         import mss  # noqa: F401

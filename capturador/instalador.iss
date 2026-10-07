@@ -1,5 +1,5 @@
 ; Instalador de Capturador (Inno Setup 6). Lo compila la acción de GitHub después de PyInstaller:
-;   iscc /DVersion=1.0.N capturador\instalador.iss   ->   Output\Capturador-Setup.exe
+;   iscc /DVersion=1.6 capturador\instalador.iss   ->   Output\Capturador-Setup-1.6.exe
 #ifndef Version
   #define Version "1.0"
 #endif
@@ -15,7 +15,7 @@ PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\Capturador
 DisableProgramGroupPage=yes
 OutputDir=..\Output
-OutputBaseFilename=Capturador-Setup
+OutputBaseFilename=Capturador-Setup-{#Version}
 SetupIconFile=icono.ico
 UninstallDisplayIcon={app}\Capturador.exe
 Compression=lzma2/max

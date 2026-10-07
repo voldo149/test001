@@ -39,15 +39,19 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "La autoprueba falló (código $($p.ExitCode))" }
 
       - name: Crear el instalador
+        id: instalador
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc "/DVersion=1.0.${{ github.run_number }}" capturador\instalador.iss
+          $version = (Select-String -Path capturador\capturador.py -Pattern '^VERSION = "(.+)"').Matches[0].Groups[1].Value
+          Write-Host "Versión $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          & $iscc "/DVersion=$version" capturador\instalador.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló" }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Capturador-Setup
-          path: Output/Capturador-Setup.exe
+          name: Capturador-Setup-v${{ steps.instalador.outputs.version }}
+          path: Output/Capturador-Setup-*.exe
           retention-days: 90

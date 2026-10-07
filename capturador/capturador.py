@@ -38,6 +38,9 @@ else:
     CARPETA_DATOS = CARPETA_SCRIPT  # desde el código: config y tiempos junto a los .py, como siempre
 CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
 # Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
+# Súbela en cada cambio: se ve junto al nombre de la app y en el instalador.
+VERSION = "1.6"
+
 APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"
 ARCHIVOS_DE_DATOS = ("config.json", "tiempos.csv", "en_curso.json")

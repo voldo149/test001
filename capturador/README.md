@@ -6,6 +6,10 @@ App para Windows que hace esto con el mando (XInput), sin pausar el juego:
 - **Animaciones:** secuencias de imágenes a 60 fps. Un atajo empieza a grabar y el mismo atajo termina.
 - **Temporizadores:** inicia y para con un botón o combinación, y guarda cuánto tiempo dedicaste a cada actividad (escribir, tomar fotos, etc.).
 
+## Número de versión
+
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v1.6**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-1.6.exe`. Así sabes si ya tienes la última.
+
 ## Instalador (.exe)
 
 La forma más fácil, sin instalar Python ni Git: **`Capturador-Setup.exe`**.
@@ -61,8 +65,8 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 
 - **+ Temporizador:** escribe el nombre de la actividad (por ejemplo, el juego). Se inicia y se para con el atajo de temporizador o con el botón **Iniciar / Parar** de su tarjeta.
 - Mientras corre un temporizador, el título de la ventana en la barra de tareas muestra el tiempo.
-- **+ Atajo de foto:** aparece "Presiona el atajo": presiona un **botón del mando o una tecla** (o mantén una combinación y suelta). Se guarda como "Atajo 1", "Atajo 2", etc. **Esc** o la **✕** salen sin asignar.
-- **Atajos con teclado:** sirven para juegos que se juegan con teclado. Funcionan aunque el juego tenga el foco. Por ejemplo `F9` o `Ctrl + Shift + S`. Esc nunca se puede asignar. Las teclas F (F9, F10…) son las más seguras porque casi ningún juego las usa; si eliges una tecla suelta como una letra, la app te pregunta antes, porque también se dispararía al escribir. Los atajos de temporizador y de animación también aceptan teclado.
+- **+ Atajo de foto:** aparece "Presiona el atajo": presiona un **botón del mando** (o mantén una combinación y suelta). Se guarda como "Atajo 1", "Atajo 2", etc. **Esc** o la **✕** salen sin asignar. La **✕** de cada atajo lo borra al instante, sin preguntar.
+- **Por ahora los atajos son solo del mando** (el teclado se quitó mientras se revisa). Si tenías atajos con teclas, al abrir la app se quitan esas teclas y se avisa en Actividad.
 - **Ver historial:** abre `tiempos.csv` en Excel, con una fila por sesión (actividad, inicio, fin, duración).
 - Cada tarjeta muestra el tiempo de la sesión en marcha y los totales de hoy, de la semana y de siempre.
 
@@ -72,7 +76,7 @@ Tiene un estilo oscuro inspirado en el editor de guías de Speedrunz. Se divide 
 - **Seleccionar:** haz clic en cualquier parte de una tarjeta. La seleccionada tiene borde verde y la etiqueta "SELECCIONADO". Al iniciar otro juego con el atajo, el que estaba corriendo se detiene y se guarda.
 - **Fotos solo con temporizador activo** (activado por defecto): el atajo de foto solo funciona mientras hay un temporizador en marcha. Si lo intentas sin temporizador, suena el aviso de Windows ("Aviso si no hay temporizador", en Sonidos). Se apaga con el interruptor en "Atajos de foto".
 - **Autoshot** (en Atajos de foto): toma una foto sola cada N segundos (− / + para elegir, de 1 a 60) mientras corre el temporizador. Puedes seguir tomando tus fotos normales. Las automáticas van a la subcarpeta **`auto`** (`auto/doric-auto-001.webp`, …) para no revolverse con las tuyas, y no hacen sonido, no hacen destello ni llenan las miniaturas. No cuentan para la pausa automática, se detienen mientras el temporizador está en pausa y mientras grabas una animación.
-- **Pausa automática sin fotos** (columna derecha, en Más opciones: No / 30 s / 1 / 3 / 5 min, por defecto 30 s): si pasa ese tiempo sin fotos ni animaciones, el temporizador se pone **en pausa** (gris) y **se cuenta solo hasta la última foto**. La siguiente foto lo reanuda. Solo se activa después de la primera foto de la sesión, así un temporizador en el que no tomas fotos (por ejemplo "escribir") nunca se pausa solo. En pausa, la tarjeta muestra **Reanudar** y **Terminar**.
+- **Pausa automática sin fotos** (columna derecha, en Más opciones: No / 30 s / 1 / 3 / 5 min, por defecto 30 s): si pasa ese tiempo sin fotos ni animaciones, el temporizador se pone **en pausa** (gris) y **se cuenta solo hasta la última foto**. La siguiente foto lo reanuda. Solo se activa después de la primera foto de la sesión, así un temporizador en el que no tomas fotos (por ejemplo "escribir") nunca se pausa solo. Con el **autoshot** encendido no hay pausa automática (si no, se detendría el autoshot). En pausa, la tarjeta muestra **Reanudar** y **Terminar**.
 - **Pausa mientras usas la app:** mientras la ventana del Capturador (o uno de sus diálogos, como el de recortar) está al frente, el tiempo **no cuenta** y el **autoshot se detiene**. La tarjeta dice "PAUSA: USANDO LA APP" y sigue con **Parar** y **Cancelar**, como si estuviera en marcha. Al volver al juego sigue sola. (Mientras grabas una animación no se pausa.)
 - **Cancelar** descarta toda la sesión, también los tramos de antes de cada pausa. Los tramos pasan al historial (`tiempos.csv`) al parar el temporizador.
 - **Cancelar:** aparece en la tarjeta mientras corre. Descarta la sesión actual como si nunca hubiera pasado, por ejemplo si lo dejaste corriendo por accidente. Pide confirmación y no toca las sesiones anteriores.
