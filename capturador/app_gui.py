@@ -865,7 +865,8 @@ class App:
             # Desde esta versión el AVIF se crea después de recortar, no al terminar de grabar.
             self.config["anim_guardar"] = "cuadros"
             self.config["version_config"] = 2
-        self.config.setdefault("anim_guardar", "cuadros")
+        # Las animaciones siempre se guardan como cuadros; el AVIF se crea al recortar.
+        self.config["anim_guardar"] = "cuadros"
         self.config["sufijo"] = cap.limpiar_sufijo(self.config.get("sufijo"))
         self._sin_teclas = self._quitar_teclas()
         self._grabando_desde = None
@@ -961,6 +962,7 @@ class App:
 
         ctk.CTkFrame(enc, width=1, height=30, fg_color=BORDE).grid(row=0, column=1, padx=16)
         ctk.CTkLabel(enc, text="Apps / Capturador", font=fuente(12), text_color=TENUE).grid(row=0, column=2)
+        boton(enc, "✂  Recortar animación", self.recortar_carpeta, "normal", width=170).grid(row=0, column=3)
 
         derecha = ctk.CTkFrame(enc, fg_color="transparent")
         derecha.grid(row=0, column=4, padx=20)
@@ -1111,19 +1113,9 @@ class App:
         self.fila_anim = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
                                       border_color=BORDE)
         self.fila_anim.pack(**pad)
-        ctk.CTkLabel(der, text="Guardar como", font=fuente(12), text_color=TENUE, anchor="w").pack(pady=(12, 4), **pad)
-        nombres_salida = {"cuadros": "Cuadros", "ambos": "Ambos", "avif": "AVIF animado"}
-        self.seg_salida = ctk.CTkSegmentedButton(
-            der, values=list(nombres_salida.values()), height=34, corner_radius=8, font=fuente(12),
-            command=lambda v: self._cambiar_salida({n: k for k, n in nombres_salida.items()}[v]),
-            fg_color=TARJETA, selected_color=SELECCION, selected_hover_color=SELECCION,
-            unselected_color=TARJETA, unselected_hover_color=TARJETA_HOVER, text_color=TEXTO)
-        self.seg_salida.set(nombres_salida.get(self.config["anim_guardar"], "Cuadros"))
-        self.seg_salida.pack(**pad)
-        ctk.CTkLabel(der, text="Con «Cuadros», haz clic en la animación para recortarla y crear el AVIF.",
-                     font=fuente(11), text_color=TENUE, anchor="w", wraplength=270, justify="left").pack(pady=(6, 0), **pad)
-        boton(der, "Recortar carpeta de cuadros…", self.recortar_carpeta, "normal",
-              height=36).pack(pady=(10, 0), **pad)
+        ctk.CTkLabel(der, text="Se guarda la carpeta de cuadros. Haz clic en la animación para recortarla "
+                                  "y crear el AVIF.",
+                     font=fuente(11), text_color=TENUE, anchor="w", wraplength=270, justify="left").pack(pady=(8, 0), **pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1294,16 +1286,6 @@ class App:
             self.log(f"Pausa automática: tras {texto_espera(segundos)} sin fotos (cuenta hasta la última foto).")
         else:
             self.log("Pausa automática desactivada.")
-
-    def _cambiar_salida(self, salida):
-        self.config["anim_guardar"] = salida
-        self._guardar()
-        textos = {"avif": "un solo archivo .avif animado junto a las fotos",
-                  "cuadros": "una carpeta con cada cuadro",
-                  "ambos": "la carpeta de cuadros con el .avif animado adentro"}
-        self.log(f"Las animaciones se guardarán como {textos[salida]}.")
-        if salida != "cuadros" and not animacion.avif_disponible():
-            self.log("[!] Tu Pillow no tiene AVIF: ejecuta instalar.bat para actualizarlo.")
 
     def _cambiar_resolucion(self, valor):
         self.config["resolucion"] = "720p" if valor == "720p" else "nativa"

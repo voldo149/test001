@@ -40,7 +40,7 @@ else:
 CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
 # Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
 # Súbela en cada cambio: se ve junto al nombre de la app y en el instalador.
-VERSION = "2.2"
+VERSION = "2.3"
 
 APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"

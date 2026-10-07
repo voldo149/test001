@@ -12,7 +12,7 @@ Doble clic en **`actualizar.bat`** (en `test001\capturador`). Cierra el Capturad
 
 ## Número de versión
 
-Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.2**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.2.exe`. Así sabes si ya tienes la última.
+Se ve arriba a la izquierda, junto a "Fotos y tiempos" (por ejemplo **v2.3**), y en la primera línea de Actividad. El instalador se llama `Capturador-Setup-2.3.exe`. Así sabes si ya tienes la última.
 
 ## Instalador (.exe)
 
@@ -110,10 +110,7 @@ doric-004.webp
 
 El número se aparta en el momento en que presionas el botón, así se respeta el orden aunque una animación todavía se esté guardando.
 
-Las animaciones, según **Guardar como**:
-- **Cuadros** (por defecto): solo la carpeta de cuadros. Después haces clic en su miniatura para **recortarla** y crear el AVIF (ver abajo).
-- **Ambos:** la carpeta de cuadros y el `.avif` animado, creado en cuanto termina de grabar.
-- **AVIF animado:** solo el archivo `doric-anim_003.avif`, junto a las fotos.
+Cada animación se guarda como una **carpeta de cuadros** (`doric-anim_003/`). Después haces clic en su miniatura para **recortarla** y crear los AVIF que quieras (ver abajo).
 
 ## Recortar y crear el AVIF
 
@@ -123,7 +120,7 @@ Clic en la miniatura de una animación (la que tiene la etiqueta ▶):
 - Los cuadros que borres a mano de la carpeta tampoco se usan, así puedes quitar partes del medio.
 - **Guardar cuadro como foto:** guarda el cuadro que estás viendo como foto suelta (`doric-005.webp`), con el siguiente número. Es una copia exacta, sin volver a comprimir. Sirve para sacar la imagen perfecta de una animación.
 - **Crear AVIF** guarda el tramo elegido como **la siguiente foto** (`doric-006.avif`, junto a las fotos), en un proceso aparte, y **el editor sigue abierto**. Así de una sola grabación (por ejemplo, toda una pelea con un jefe) sacas un AVIF por cada patrón de ataque: `doric-006.avif`, `doric-007.avif`, … Después de crear uno, el **Inicio** salta al cuadro siguiente al final que usaste, para seguir avanzando por la pelea. Debajo se listan los que ya creaste y de qué cuadros salió cada uno. **Cerrar** sale del editor.
-- **Recortar carpeta de cuadros…** (columna derecha, en Atajo de animación): elige cualquier carpeta con cuadros (PNG, JPG o WEBP), por ejemplo una grabación vieja, y se abre este mismo editor. Los AVIF de una carpeta grabada con la app van junto a ella con su sufijo; los de otra carpeta, a la carpeta de guardado actual con el sufijo actual.
+- **✂ Recortar animación** (arriba, en medio): elige cualquier carpeta con cuadros (PNG, JPG o WEBP), por ejemplo una grabación vieja, y se abre este mismo editor. Los AVIF de una carpeta grabada con la app van junto a ella con su sufijo; los de otra carpeta, a la carpeta de guardado actual con el sufijo actual.
 
 ## Animaciones (60 fps)
 
