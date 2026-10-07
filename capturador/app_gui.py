@@ -691,6 +691,9 @@ class Escucha(threading.Thread):
         if solo_mando(self.config.get("atajo_anim")):
             atajos.append({"nombre": "anim", "botones": solo_mando(self.config["atajo_anim"])})
             acciones["anim"] = ("anim", None)
+        if solo_mando(self.config.get("atajo_autoshot")):
+            atajos.append({"nombre": "autoshot", "botones": solo_mando(self.config["atajo_autoshot"])})
+            acciones["autoshot"] = ("autoshot", None)
         self.acciones = acciones
         self.detector = cap.DetectorAtajos(atajos, self.config["espera_entre_fotos"])
         # Solo se revisan las teclas que usa algún atajo (revisar todas cada 8 ms sería un gasto inútil).
@@ -799,6 +802,8 @@ class Escucha(threading.Thread):
                             self._avisar("timer_global", datetime.now())
                         elif tipo == "anim":
                             self._alternar_animacion()
+                        elif tipo == "autoshot":
+                            self._avisar("autoshot_alternar")
 
                 # Autoshot: una foto cada N segundos mientras corre un temporizador (no en pausa).
                 permitido = self.timer_corriendo or not self.config.get("fotos_solo_con_timer", True)
@@ -1080,6 +1085,11 @@ class App:
                                          wraplength=270, justify="left")
         self.lbl_autoshot.pack(pady=(2, 0), **pad)
         self._mostrar_autoshot()
+        ctk.CTkLabel(der, text="Atajo para prender / apagar el autoshot", font=fuente(12), text_color=TENUE,
+                     anchor="w").pack(pady=(10, 4), **pad)
+        self.fila_autoshot = ctk.CTkFrame(der, fg_color=TARJETA, corner_radius=10, border_width=1,
+                                          border_color=BORDE)
+        self.fila_autoshot.pack(**pad)
 
         separador(der).pack(pady=20, **pad)
 
@@ -1611,6 +1621,8 @@ class App:
                     self._captura(evento[1])
                 elif tipo == "timer_global":
                     self._timer_global(evento[1])
+                elif tipo == "autoshot_alternar":
+                    self._alternar_autoshot()
                 elif tipo == "combo_cancelado":
                     self._cancelar_grabacion()
                 elif tipo == "combo":
@@ -1702,7 +1714,8 @@ class App:
         nombres = cap.mascara_a_nombres(mascara)
         duenos = self.config["atajos"] + [
             {"nombre": "atajo de temporizador", "botones": self.config.get("atajo_timer")},
-            {"nombre": "atajo de animación", "botones": self.config.get("atajo_anim")}]
+            {"nombre": "atajo de animación", "botones": self.config.get("atajo_anim")},
+            {"nombre": "atajo de autoshot", "botones": self.config.get("atajo_autoshot")}]
         for dueno in duenos:
             if dueno.get("botones") and cap.nombres_a_mascara(dueno["botones"]) == mascara:
                 Dialogo.mostrar(self.root, "Combinación ocupada",
@@ -1951,9 +1964,11 @@ class App:
     # ------------------------------------------------------------------ atajo global
 
     def _refrescar_global(self):
-        """Dibuja las filas del atajo de temporizador y del de animación."""
+        """Dibuja las filas del atajo de temporizador, del de animación y del de autoshot."""
         for fila, clave, asignar, quitar in ((self.fila_global, "atajo_timer", self.asignar_global, self.quitar_global),
-                                             (self.fila_anim, "atajo_anim", self.asignar_anim, self.quitar_anim)):
+                                             (self.fila_anim, "atajo_anim", self.asignar_anim, self.quitar_anim),
+                                             (self.fila_autoshot, "atajo_autoshot", self.asignar_autoshot,
+                                              self.quitar_autoshot)):
             for w in fila.winfo_children():
                 w.destroy()
             atajo = self.config.get(clave)
@@ -1967,6 +1982,27 @@ class App:
                     side="left", padx=14, pady=10)
                 boton(fila, "Asignar", asignar, "verde", width=90, height=30).pack(
                     side="right", padx=8, pady=8)
+
+    def asignar_autoshot(self):
+        def listo(botones):
+            self.config["atajo_autoshot"] = botones
+            self._guardar()
+            self.escucha.recargar()
+            self._refrescar_global()
+            self.log(f"Atajo de autoshot = {cap.texto_combo(botones)}")
+        self._grabar_combo("Atajo de autoshot", listo)
+
+    def quitar_autoshot(self):
+        self.config.pop("atajo_autoshot", None)
+        self._guardar()
+        self.escucha.recargar()
+        self._refrescar_global()
+
+    def _alternar_autoshot(self):
+        """Desde el mando: prende o apaga el autoshot, con sonido para saberlo sin ver la pantalla."""
+        self.var_autoshot.set(not self.config.get("autoshot"))
+        self._cambiar_autoshot()
+        pitido(self.config["autoshot"])
 
     def asignar_anim(self):
         def listo(botones):
