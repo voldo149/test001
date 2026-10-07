@@ -644,10 +644,10 @@ class Escucha(threading.Thread):
             cap.sonar()  # el sonido de Windows que antes sonaba al tomar foto
 
     def _autoshot(self, guardador, capturador):
-        """Foto automática en <carpeta>/auto/<sufijo>-auto-NNN, sin sonido ni miniatura."""
+        """Foto automática: misma carpeta y misma numeración que las manuales, sin sonido ni destello."""
         try:
-            carpeta = cap.carpeta_actual(self.config) / "auto"
-            sufijo = cap.limpiar_sufijo(self.config.get("sufijo")) + "-auto"
+            carpeta = cap.carpeta_actual(self.config)
+            sufijo = cap.limpiar_sufijo(self.config.get("sufijo"))
             reserva = (carpeta, sufijo, cap.reservar_numero(carpeta, sufijo))
             guardador.cola.put((cap.AUTOSHOT, datetime.now(), capturador.tomar(), reserva))
             self.autoshots += 1
@@ -1232,11 +1232,11 @@ class App:
     def _mostrar_autoshot(self, cuantas=None):
         self.lbl_autoshot_seg.configure(text=f"{self.config['autoshot_seg']} s")
         if not self.config["autoshot"]:
-            texto = "Una foto cada tantos segundos mientras corre el temporizador (en la subcarpeta «auto»)."
+            texto = "Una foto cada tantos segundos mientras corre el temporizador, junto a las demás."
         elif cuantas:
-            texto = f"Activo · {cuantas} fotos automáticas en «auto»"
+            texto = f"Activo · {cuantas} fotos automáticas"
         else:
-            texto = "Activo · las fotos van a la subcarpeta «auto»"
+            texto = "Activo · las fotos van junto a las demás, con la misma numeración"
         self.lbl_autoshot.configure(text=texto, text_color=VERDE if self.config["autoshot"] else TENUE)
 
     def _cambiar_autoshot(self):
@@ -1331,6 +1331,7 @@ class App:
         if actual != getattr(self, "_carpeta_mostrada", None):
             self._carpeta_mostrada = actual
             self.miniaturas = []
+            self._total_fotos = 0
             self._dibujar_miniaturas()
             threading.Thread(target=self._cargar_miniaturas, args=(actual,), daemon=True).start()
 
@@ -1541,7 +1542,7 @@ class App:
                         lista.append((ruta, hacer_miniatura(img), None))
             except Exception:
                 continue
-        self.eventos.put(("miniaturas", carpeta, lista))
+        self.eventos.put(("miniaturas", carpeta, lista, len(elementos)))
 
     def _dibujar_miniaturas(self):
         for w in self.grilla_fotos.winfo_children():
@@ -1569,7 +1570,7 @@ class App:
         if not self.miniaturas:
             ctk.CTkLabel(self.grilla_fotos, text="Aquí aparecerán tus\nfotos y animaciones.", font=fuente(12),
                          text_color=TENUE).grid(row=0, column=0, columnspan=2, pady=40)
-        self.ins_fotos.configure(text=str(len(self.miniaturas)))
+        self.ins_fotos.configure(text=str(max(getattr(self, "_total_fotos", 0), len(self.miniaturas))))
 
     # ------------------------------------------------------------------ eventos
 
@@ -1617,10 +1618,12 @@ class App:
                     if evento[1] == self._carpeta_mostrada:  # pudo cambiar mientras cargaba
                         self.miniaturas = evento[2] + self.miniaturas
                         del self.miniaturas[MAX_MINIATURAS:]
+                        self._total_fotos = evento[3]  # se muestran las más recientes, se cuentan todas
                         self._dibujar_miniaturas()
                 elif tipo == "miniatura":
                     if self._en_carpeta_mostrada(evento[1]):
                         self.miniaturas.insert(0, (evento[1], evento[2], None))
+                        self._total_fotos = getattr(self, "_total_fotos", 0) + 1
                         del self.miniaturas[MAX_MINIATURAS:]
                         self._dibujar_miniaturas()
                 elif tipo == "avif_creado":
@@ -1902,6 +1905,7 @@ class App:
             if cuadros:
                 mini = marcar_animacion(mini, cuadros)
             self.miniaturas.insert(0, (Path(ruta), mini, cuadros))
+            self._total_fotos = getattr(self, "_total_fotos", 0) + 1
             del self.miniaturas[MAX_MINIATURAS:]
             self._dibujar_miniaturas()
         except Exception:
@@ -2120,6 +2124,7 @@ class App:
             if miniatura is not None and total and self._en_carpeta_mostrada(carpeta):
                 img = marcar_animacion(hacer_miniatura(miniatura), total)
                 self.miniaturas.insert(0, (carpeta, img, total))
+                self._total_fotos = getattr(self, "_total_fotos", 0) + 1
                 del self.miniaturas[MAX_MINIATURAS:]
                 self._dibujar_miniaturas()
         elif tipo == "anim_guardando":

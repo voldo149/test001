@@ -39,7 +39,7 @@ else:
 CARPETA_DATOS.mkdir(parents=True, exist_ok=True)
 # Identidad de la app en la barra de tareas (no cambiarla: el icono anclado depende de ella).
 # Súbela en cada cambio: se ve junto al nombre de la app y en el instalador.
-VERSION = "1.6"
+VERSION = "1.7"
 
 APP_ID = "CapturadorSilksong"
 ARCHIVO_CONFIG = CARPETA_DATOS / "config.json"
@@ -431,11 +431,11 @@ class Guardador(threading.Thread):
             reserva = item[3] if len(item) > 3 else None  # (carpeta, sufijo, número) ya apartado
             try:
                 ruta, img = self._guardar(nombre_atajo, momento, datos, reserva)
-                if nombre_atajo == AUTOSHOT:
-                    continue  # las automáticas se guardan en silencio (pueden ser cientos)
-                self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.al_guardar:
                     self.al_guardar(ruta, img)
+                if nombre_atajo == AUTOSHOT:
+                    continue  # las automáticas, sin aviso ni sonido (pueden ser cientos)
+                self.aviso(f"  [foto] [{nombre_atajo}] {ruta.name}")
                 if self.config["sonido"]:
                     sonar()
             except Exception as e:
